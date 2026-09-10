@@ -98,7 +98,50 @@ function downloadWithPrompt(contents, url, filename) {
   contents.downloadURL(url);
 }
 
-function installGuestContextMenu(contents) {
+function runHostCommand(command) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.webContents.executeJavaScript(
+    'window.dkFlashBrowserCommand && window.dkFlashBrowserCommand(' + JSON.stringify(command) + ')'
+  );
+}
+
+function installGuestHandlers(contents) {
+  contents.on('before-input-event', (event, input) => {
+    const key = String(input.key || '').toLowerCase();
+
+    if (input.control && !input.shift && key === 'l') {
+      event.preventDefault();
+      runHostCommand('focus-address');
+      return;
+    }
+
+    if (input.control && !input.shift && key === 'd') {
+      event.preventDefault();
+      runHostCommand('toggle-bookmark');
+      return;
+    }
+
+    if ((input.control && input.shift && key === 'r') || (input.control && key === 'f5')) {
+      event.preventDefault();
+      contents.reloadIgnoringCache();
+      return;
+    }
+
+    if ((input.control && !input.shift && key === 'r') || key === 'f5') {
+      event.preventDefault();
+      contents.reload();
+      return;
+    }
+
+    if (input.alt && key === 'home') {
+      event.preventDefault();
+      runHostCommand('home');
+    }
+  });
+
   contents.on('context-menu', (_event, params) => {
     const template = [];
 
@@ -157,7 +200,7 @@ let mainWindow = null;
 
 app.on('web-contents-created', (_event, contents) => {
   if (typeof contents.getType === 'function' && contents.getType() === 'webview') {
-    installGuestContextMenu(contents);
+    installGuestHandlers(contents);
   }
 });
 
