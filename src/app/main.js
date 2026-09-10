@@ -110,6 +110,10 @@ function runHostCommand(command) {
 
 function installGuestHandlers(contents) {
   contents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing) {
+      return;
+    }
+
     const key = String(input.key || '').toLowerCase();
 
     if (input.control && !input.shift && key === 'l') {
