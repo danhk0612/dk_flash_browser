@@ -31,7 +31,7 @@ Status: complete and validated on Windows / real legacy site
 
 ## T02 — Browser UI baseline
 
-Status: in progress
+Status: implementation complete; awaiting Windows validation
 
 - Custom application shell without Whale/Chrome UI.
 - Product name: DK Flash Browser.
