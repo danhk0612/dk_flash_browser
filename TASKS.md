@@ -31,7 +31,7 @@ Status: complete and validated on Windows / real legacy site
 
 ## T02 — Browser UI baseline
 
-Status: implementation complete; awaiting Windows validation
+Status: implementation complete; Windows revalidation required after input/bookmark fixes
 
 - Custom application shell without Whale/Chrome UI.
 - Product name: DK Flash Browser.
@@ -41,10 +41,26 @@ Status: implementation complete; awaiting Windows validation
 - Hard reload / ignore cache.
 - Home button.
 - Local bookmark bar with add/remove.
+- Bookmark right-click opens an explicit delete menu; right-click itself never deletes.
+- Preserve user-entered address text while the current page is still loading or navigating.
+- Explicit address-field text/caret colors.
 - Keyboard shortcuts for address focus, bookmarks, reload, hard reload, and home.
+- Guest shortcut interception only on non-composing key-down events to avoid interfering with text/IME input.
 - Basic right-click download for direct link and image/media URLs.
 - Standard cut/copy/paste/select-all context actions where applicable.
 - Do not implement tabs in this task.
+
+Revalidation before merge:
+
+- Existing Flash content still renders and accepts input.
+- Address text remains visible while typing and Enter navigates to the entered value.
+- HTML input fields inside the legacy page accept normal text/IME input.
+- Bookmark right-click shows `북마크 삭제` and does not remove the bookmark until selected.
+- Home/back/forward/reload/hard reload work.
+- Bookmark persistence works after restart.
+- Browser shortcuts work while the page has focus.
+- Link/image/SWF direct download works where the page exposes a downloadable URL.
+- Packaged x86 build behaves the same as development run.
 
 ## T03 — Tabs
 
