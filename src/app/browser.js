@@ -13,9 +13,13 @@
   const bookmarkButton = document.getElementById('bookmark-button');
   const addressInput = document.getElementById('address-input');
   const bookmarkBar = document.getElementById('bookmark-bar');
+  const bookmarkContextMenu = document.getElementById('bookmark-context-menu');
+  const bookmarkDeleteButton = document.getElementById('bookmark-delete-button');
   const webview = document.getElementById('browser-view');
 
   let initialNavigationStarted = false;
+  let isEditingAddress = false;
+  let contextBookmarkUrl = '';
 
   function normalizeUrl(value) {
     const input = String(value || '').trim();
@@ -51,6 +55,31 @@
     localStorage.setItem(bookmarkStorageKey, JSON.stringify(bookmarks));
   }
 
+  function hideBookmarkContextMenu() {
+    bookmarkContextMenu.hidden = true;
+    contextBookmarkUrl = '';
+  }
+
+  function showBookmarkContextMenu(event, bookmarkUrl) {
+    contextBookmarkUrl = bookmarkUrl;
+    bookmarkContextMenu.hidden = false;
+
+    const menuWidth = bookmarkContextMenu.offsetWidth;
+    const menuHeight = bookmarkContextMenu.offsetHeight;
+    const left = Math.min(event.clientX, Math.max(0, window.innerWidth - menuWidth - 4));
+    const top = Math.min(event.clientY, Math.max(0, window.innerHeight - menuHeight - 4));
+
+    bookmarkContextMenu.style.left = left + 'px';
+    bookmarkContextMenu.style.top = top + 'px';
+  }
+
+  function removeBookmark(url) {
+    const next = loadBookmarks().filter((entry) => entry.url !== url);
+    saveBookmarks(next);
+    renderBookmarks();
+    updateBookmarkButton();
+  }
+
   function updateBookmarkButton() {
     const url = currentUrl();
     const exists = loadBookmarks().some((bookmark) => bookmark.url === url);
@@ -67,14 +96,12 @@
       item.className = 'bookmark-item';
       item.type = 'button';
       item.textContent = bookmark.title || bookmark.url;
-      item.title = bookmark.url + '\n우클릭: 북마크 제거';
+      item.title = bookmark.url;
       item.addEventListener('click', () => navigate(bookmark.url));
       item.addEventListener('contextmenu', (event) => {
         event.preventDefault();
-        const next = loadBookmarks().filter((entry) => entry.url !== bookmark.url);
-        saveBookmarks(next);
-        renderBookmarks();
-        updateBookmarkButton();
+        event.stopPropagation();
+        showBookmarkContextMenu(event, bookmark.url);
       });
       bookmarkBar.appendChild(item);
     });
@@ -113,7 +140,7 @@
     }
 
     const url = currentUrl();
-    if (url) {
+    if (url && !isEditingAddress && document.activeElement !== addressInput) {
       addressInput.value = url;
     }
     updateBookmarkButton();
@@ -145,13 +172,49 @@
   homeButton.addEventListener('click', () => navigate(homeUrl));
   bookmarkButton.addEventListener('click', toggleBookmark);
 
-  addressInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      navigate(addressInput.value);
+  bookmarkDeleteButton.addEventListener('click', () => {
+    if (contextBookmarkUrl) {
+      removeBookmark(contextBookmarkUrl);
+    }
+    hideBookmarkContextMenu();
+  });
+
+  addressInput.addEventListener('focus', () => {
+    isEditingAddress = true;
+    addressInput.select();
+  });
+
+  addressInput.addEventListener('input', () => {
+    isEditingAddress = true;
+  });
+
+  addressInput.addEventListener('blur', () => {
+    isEditingAddress = false;
+    const url = currentUrl();
+    if (url) {
+      addressInput.value = url;
     }
   });
 
-  addressInput.addEventListener('focus', () => addressInput.select());
+  addressInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      const requestedUrl = addressInput.value;
+      event.preventDefault();
+      isEditingAddress = false;
+      navigate(requestedUrl);
+      addressInput.blur();
+      webview.focus();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      isEditingAddress = false;
+      addressInput.value = currentUrl();
+      addressInput.blur();
+      webview.focus();
+    }
+  });
 
   webview.addEventListener('dom-ready', () => {
     if (!initialNavigationStarted) {
@@ -168,6 +231,7 @@
 
   window.dkFlashBrowserCommand = function (command) {
     if (command === 'focus-address') {
+      isEditingAddress = true;
       addressInput.focus();
       addressInput.select();
       return;
@@ -186,6 +250,7 @@
   window.addEventListener('keydown', (event) => {
     if (event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'l') {
       event.preventDefault();
+      isEditingAddress = true;
       addressInput.focus();
       addressInput.select();
       return;
@@ -215,6 +280,15 @@
       navigate(homeUrl);
     }
   });
+
+  window.addEventListener('mousedown', (event) => {
+    if (!bookmarkContextMenu.hidden && !bookmarkContextMenu.contains(event.target)) {
+      hideBookmarkContextMenu();
+    }
+  });
+
+  window.addEventListener('blur', hideBookmarkContextMenu);
+  window.addEventListener('resize', hideBookmarkContextMenu);
 
   renderBookmarks();
   webview.src = 'about:blank';
