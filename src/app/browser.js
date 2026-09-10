@@ -19,6 +19,7 @@
 
   let initialNavigationStarted = false;
   let isEditingAddress = false;
+  let pendingAddress = '';
   let contextBookmarkUrl = '';
 
   function normalizeUrl(value) {
@@ -140,7 +141,7 @@
     }
 
     const url = currentUrl();
-    if (url && !isEditingAddress && document.activeElement !== addressInput) {
+    if (url && !isEditingAddress && !pendingAddress && document.activeElement !== addressInput) {
       addressInput.value = url;
     }
     updateBookmarkButton();
@@ -152,16 +153,20 @@
       return;
     }
 
+    pendingAddress = url;
+    addressInput.value = url;
     webview.loadURL(url);
   }
 
   backButton.addEventListener('click', () => {
+    pendingAddress = '';
     if (webview.canGoBack()) {
       webview.goBack();
     }
   });
 
   forwardButton.addEventListener('click', () => {
+    pendingAddress = '';
     if (webview.canGoForward()) {
       webview.goForward();
     }
@@ -190,9 +195,11 @@
 
   addressInput.addEventListener('blur', () => {
     isEditingAddress = false;
-    const url = currentUrl();
-    if (url) {
-      addressInput.value = url;
+    if (!pendingAddress) {
+      const url = currentUrl();
+      if (url) {
+        addressInput.value = url;
+      }
     }
   });
 
@@ -210,6 +217,7 @@
     if (event.key === 'Escape') {
       event.preventDefault();
       isEditingAddress = false;
+      pendingAddress = '';
       addressInput.value = currentUrl();
       addressInput.blur();
       webview.focus();
@@ -224,8 +232,18 @@
     updateNavigationState();
   });
 
-  webview.addEventListener('did-navigate', updateNavigationState);
-  webview.addEventListener('did-navigate-in-page', updateNavigationState);
+  webview.addEventListener('did-navigate', () => {
+    pendingAddress = '';
+    updateNavigationState();
+  });
+  webview.addEventListener('did-navigate-in-page', () => {
+    pendingAddress = '';
+    updateNavigationState();
+  });
+  webview.addEventListener('did-fail-load', () => {
+    pendingAddress = '';
+    updateNavigationState();
+  });
   webview.addEventListener('did-stop-loading', updateNavigationState);
   webview.addEventListener('page-title-updated', updateBookmarkButton);
 
