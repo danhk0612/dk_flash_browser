@@ -4,7 +4,7 @@ Work is performed sequentially. Do not advance to the next task until the curren
 
 ## T01 — Flash PoC
 
-Status: in progress
+Status: implementation complete; awaiting Windows / real legacy-site validation
 
 - Use official Electron 6.1.12 Windows x86 runtime.
 - Load a locally supplied 32-bit `pepflashplayer.dll` 29.0.0.140.
