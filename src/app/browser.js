@@ -166,6 +166,23 @@
   webview.addEventListener('did-stop-loading', updateNavigationState);
   webview.addEventListener('page-title-updated', updateBookmarkButton);
 
+  window.dkFlashBrowserCommand = function (command) {
+    if (command === 'focus-address') {
+      addressInput.focus();
+      addressInput.select();
+      return;
+    }
+
+    if (command === 'toggle-bookmark') {
+      toggleBookmark();
+      return;
+    }
+
+    if (command === 'home') {
+      navigate(homeUrl);
+    }
+  };
+
   window.addEventListener('keydown', (event) => {
     if (event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'l') {
       event.preventDefault();
