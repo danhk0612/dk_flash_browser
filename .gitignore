@@ -1,0 +1,17 @@
+# Local runtime / build output
+.runtime/
+dist/
+
+# Portable browser profile
+UserData/
+
+# Local configuration
+config.ini
+
+# Adobe Flash Player binary - must never be committed
+Flash/pepflashplayer.dll
+Flash/*.dll
+
+# Windows noise
+Thumbs.db
+Desktop.ini
