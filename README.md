@@ -20,6 +20,8 @@ T02 browser UI is implemented on `task/t02-browser-ui` and is awaiting revalidat
 - bookmark right-click now opens an explicit delete menu instead of deleting immediately;
 - address edits are no longer overwritten by page navigation/loading events, and guest shortcut handling avoids IME composition events.
 
+If text-entry trouble was occurring inside the loaded legacy page rather than the address bar, verify that separately after this update. The guest shortcut hook now only handles non-composing key-down shortcut events, reducing its interference surface.
+
 ## T02 browser controls
 
 - Address bar
