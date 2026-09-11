@@ -2,20 +2,16 @@
 
 const { ipcRenderer } = require('electron');
 
-// BrowserView is a separate native surface, so clicks inside page content never
-// reach the browser-chrome DOM. Forward only the fact that page content was
-// pressed; do not alter the clicked element.
 window.addEventListener('mousedown', () => {
   ipcRenderer.send('browser:page-mousedown');
 }, true);
 
-// Chrome-like Ctrl + mouse-wheel zoom. Prevent the renderer's default action so
-// zoom is owned by the browser shell and the current percentage stays in sync.
+// Electron 6 emits webContents "zoom-changed" for Ctrl+wheel. Do not prevent
+// the native wheel event here; bootstrap.js owns the actual zoom step and UI sync.
 window.addEventListener('wheel', (event) => {
   if (!event.ctrlKey || !event.deltaY) return;
-  event.preventDefault();
-  ipcRenderer.send('browser:zoom-wheel', event.deltaY < 0 ? 1 : -1);
-}, { capture: true, passive: false });
+  ipcRenderer.send('browser:native-zoom-wheel', event.deltaY < 0 ? 1 : -1);
+}, { capture: true, passive: true });
 
 function resolveCandidate(value) {
   const raw = String(value || '').trim();
@@ -27,44 +23,59 @@ function resolveCandidate(value) {
   }
 }
 
-function collectFlashCandidates() {
-  const urls = [];
+function uniqueUrls(values, filter) {
   const seen = Object.create(null);
-
-  function add(value) {
+  const result = [];
+  values.forEach((value) => {
     const resolved = resolveCandidate(value);
-    if (!resolved || !/\.swf(?:$|[?#])/i.test(resolved) || seen[resolved]) return;
+    if (!resolved || seen[resolved] || (filter && !filter(resolved))) return;
     seen[resolved] = true;
-    urls.push(resolved);
-  }
+    result.push(resolved);
+  });
+  return result;
+}
+
+function collectMediaCandidates() {
+  const flashValues = [];
+  const imageValues = [];
 
   try {
-    document.querySelectorAll('embed').forEach((node) => add(node.getAttribute('src')));
-    document.querySelectorAll('object').forEach((node) => add(node.getAttribute('data')));
+    document.querySelectorAll('embed').forEach((node) => flashValues.push(node.getAttribute('src')));
+    document.querySelectorAll('object').forEach((node) => flashValues.push(node.getAttribute('data')));
     document.querySelectorAll('param').forEach((node) => {
       const name = String(node.getAttribute('name') || '').toLowerCase();
-      if (name === 'movie' || name === 'src') add(node.getAttribute('value'));
+      if (name === 'movie' || name === 'src') flashValues.push(node.getAttribute('value'));
+    });
+
+    document.querySelectorAll('img').forEach((node) => {
+      imageValues.push(node.currentSrc || node.getAttribute('src'));
+    });
+    document.querySelectorAll('input[type="image"]').forEach((node) => imageValues.push(node.getAttribute('src')));
+    document.querySelectorAll('source').forEach((node) => {
+      const srcset = String(node.getAttribute('srcset') || '').split(',');
+      srcset.forEach((part) => imageValues.push(part.trim().split(/\s+/)[0]));
     });
   } catch (_error) {}
 
-  ipcRenderer.send('browser:flash-candidates', urls);
+  ipcRenderer.send('browser:flash-candidates', uniqueUrls(flashValues, (url) => /\.swf(?:$|[?#])/i.test(url)));
+  ipcRenderer.send('browser:image-candidates', uniqueUrls(imageValues, (url) => /^(?:https?:|file:|data:|blob:)/i.test(url)));
 }
 
-function installFlashCandidateTracking() {
-  collectFlashCandidates();
+function installMediaCandidateTracking() {
+  collectMediaCandidates();
   try {
-    const observer = new MutationObserver(() => collectFlashCandidates());
+    const observer = new MutationObserver(() => collectMediaCandidates());
     observer.observe(document.documentElement || document, {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['src', 'data', 'value']
+      attributeFilter: ['src', 'srcset', 'data', 'value']
     });
   } catch (_error) {}
 }
 
 if (document.readyState === 'loading') {
-  window.addEventListener('DOMContentLoaded', installFlashCandidateTracking, { once: true });
+  window.addEventListener('DOMContentLoaded', installMediaCandidateTracking, { once: true });
 } else {
-  installFlashCandidateTracking();
+  installMediaCandidateTracking();
 }
