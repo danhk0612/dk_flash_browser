@@ -61,30 +61,34 @@
     if (origin) faviconCache[origin] = favicon;
   }
 
-  function faviconForUrl(url) {
+  function faviconForUrl(url, explicitFavicon) {
+    if (explicitFavicon) return explicitFavicon;
     if (!url) return '';
     const origin = urlOrigin(url);
     return faviconCache[url] || (origin ? faviconCache[origin] : '') || fallbackFaviconUrl(url);
   }
 
-  function setImageSource(image, pageUrl) {
-    const src = faviconForUrl(pageUrl);
+  function setImageSource(image, pageUrl, explicitFavicon) {
+    const src = faviconForUrl(pageUrl, explicitFavicon);
     image.style.display = 'none';
     image.removeAttribute('src');
     if (!src) return;
-    image.onload = function () { image.style.display = ''; };
+
+    image.onload = function () {
+      image.style.display = 'block';
+    };
     image.onerror = function () {
-      if (src !== fallbackFaviconUrl(pageUrl)) {
-        const fallback = fallbackFaviconUrl(pageUrl);
-        if (fallback) {
-          image.onload = function () { image.style.display = ''; };
-          image.onerror = function () {
-            image.style.display = 'none';
-            image.removeAttribute('src');
-          };
-          image.src = fallback;
-          return;
-        }
+      const fallback = fallbackFaviconUrl(pageUrl);
+      if (src !== fallback && fallback) {
+        image.onload = function () {
+          image.style.display = 'block';
+        };
+        image.onerror = function () {
+          image.style.display = 'none';
+          image.removeAttribute('src');
+        };
+        image.src = fallback;
+        return;
       }
       image.style.display = 'none';
       image.removeAttribute('src');
@@ -129,7 +133,7 @@
       icon.className = 'bookmark-favicon';
       icon.alt = '';
       icon.draggable = false;
-      setImageSource(icon, bookmark.url);
+      setImageSource(icon, bookmark.url, bookmark.favicon || '');
 
       const title = document.createElement('span');
       title.className = 'bookmark-title';
@@ -147,13 +151,36 @@
     });
   }
 
+  function refreshBookmarkFaviconsForPage(pageUrl, favicon) {
+    if (!pageUrl || !favicon) return;
+    const pageOrigin = urlOrigin(pageUrl);
+    let changed = false;
+    const bookmarks = loadBookmarks();
+    bookmarks.forEach((bookmark) => {
+      if (bookmark.url === pageUrl || (pageOrigin && urlOrigin(bookmark.url) === pageOrigin)) {
+        if (bookmark.favicon !== favicon) {
+          bookmark.favicon = favicon;
+          changed = true;
+        }
+      }
+    });
+    if (changed) saveBookmarks(bookmarks);
+  }
+
   function toggleBookmark() {
     const url = currentState.url;
     if (!url || url === 'about:blank') return;
     const bookmarks = loadBookmarks();
     const index = bookmarks.findIndex((bookmark) => bookmark.url === url);
-    if (index >= 0) bookmarks.splice(index, 1);
-    else bookmarks.push({ url: url, title: currentState.title || url });
+    if (index >= 0) {
+      bookmarks.splice(index, 1);
+    } else {
+      bookmarks.push({
+        url: url,
+        title: currentState.title || url,
+        favicon: faviconForUrl(url)
+      });
+    }
     saveBookmarks(bookmarks);
     renderBookmarks();
     updateBookmarkButton();
@@ -241,8 +268,9 @@
   function handleFavicon(payload) {
     if (!payload || !payload.url || !payload.favicon) return;
     cacheFavicon(payload.url, payload.favicon);
+    refreshBookmarkFaviconsForPage(payload.url, payload.favicon);
     if (currentState.url && (currentState.url === payload.url || urlOrigin(currentState.url) === urlOrigin(payload.url))) {
-      setImageSource(addressFavicon, currentState.url);
+      setImageSource(addressFavicon, currentState.url, payload.favicon);
     }
     renderTabs(tabState);
     renderBookmarks();
