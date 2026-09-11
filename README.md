@@ -9,13 +9,31 @@
 - External Pepper Flash plug-in loading
 - Configurable start URL
 - Portable profile stored beside the application
-- Later stages: custom address bar, navigation controls, tabs, and legacy popup/new-window handling
+- Lightweight standalone browser UI without Whale/Chrome service integration
 
 ## Current status
 
-T01 Flash PoC is implemented on `task/t01-flash-poc` and is awaiting real Windows/legacy-site validation.
+T01 Flash PoC is complete and validated on the real Windows legacy environment.
 
-The first validation target is whether the existing 32-bit `pepflashplayer.dll` 29.0.0.140 used by the working Whale legacy package can run correctly inside Electron 6.1.12 x86.
+T02 browser UI is implemented on `task/t02-browser-ui` and is awaiting revalidation after two fixes:
+
+- bookmark right-click now opens an explicit delete menu instead of deleting immediately;
+- address edits are no longer overwritten by page navigation/loading events, and guest shortcut handling avoids IME composition events.
+
+If text-entry trouble was occurring inside the loaded legacy page rather than the address bar, verify that separately after this update. The guest shortcut hook now only handles non-composing key-down shortcut events, reducing its interference surface.
+
+## T02 browser controls
+
+- Address bar
+- Back / forward
+- Normal reload: `F5` / `Ctrl+R`
+- Hard reload ignoring cache: `Ctrl+F5` / `Ctrl+Shift+R`
+- Home: `Alt+Home`, using `Browser.StartUrl`
+- Local bookmark bar: `Ctrl+D`
+- Bookmark right-click: explicit `북마크 삭제` menu
+- Basic right-click direct download for links and image/media URLs where exposed by the page
+
+Bookmarks are stored only in the portable local profile. No Chrome sign-in, synchronization, Web Store, or Google service is used.
 
 ## Local development folder
 
@@ -34,7 +52,7 @@ git clone https://github.com/danhk0612/dk_flash_browser.git
 cd dk_flash_browser
 ```
 
-### Update main later
+### Update main
 
 ```bat
 cd /d D:\PortableApps\dk_flash_browser
@@ -42,16 +60,16 @@ git switch main
 git pull --ff-only origin main
 ```
 
-### Test the current T01 branch before merge
+### Test the current T02 branch
 
 ```bat
 cd /d D:\PortableApps\dk_flash_browser
 git fetch origin
-git switch task/t01-flash-poc
-git pull --ff-only origin task/t01-flash-poc
+git switch task/t02-browser-ui
+git pull --ff-only origin task/t02-browser-ui
 ```
 
-## T01 setup
+## Local setup
 
 1. Place the locally supplied 32-bit PPAPI Flash DLL at:
 
@@ -59,7 +77,7 @@ git pull --ff-only origin task/t01-flash-poc
    D:\PortableApps\dk_flash_browser\Flash\pepflashplayer.dll
    ```
 
-2. Create the local configuration file:
+2. Create the local configuration file if it does not already exist:
 
    ```powershell
    Copy-Item .\config.example.ini .\config.ini
@@ -73,7 +91,7 @@ git pull --ff-only origin task/t01-flash-poc
    StartUrl=http://legacy-server/
    ```
 
-4. Start the PoC:
+4. Start the browser:
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File .\scripts\run-dev.ps1
