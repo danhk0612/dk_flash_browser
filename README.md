@@ -14,9 +14,9 @@
 
 ## Current status
 
-T01 through T04 are complete and merged. T05 adds portable package validation and is awaiting Windows runtime acceptance.
+T01 through T05 are complete and merged. T06 finalizes the external configuration contract.
 
-The current popup implementation routes `target="_blank"` / `window.open()` into browser tabs. The product requirement allows a future refinement where true window requests open as lightweight content-only windows, but no rewrite is required unless a real legacy workflow needs it.
+The current popup implementation routes `target="_blank"` / `window.open()` into browser tabs. A future refinement may preserve true window requests as lightweight content-only windows if a real legacy workflow requires that distinction.
 
 ## Local development folder
 
@@ -44,26 +44,6 @@ git switch main
 git pull --ff-only origin main
 ```
 
-### Test the current T05 branch
-
-First checkout:
-
-```bat
-D:
-cd \PortableApps\dk_flash_browser
-git fetch origin
-git switch -c task/t05-portable-validation --track origin/task/t05-portable-validation
-```
-
-Later updates:
-
-```bat
-D:
-cd \PortableApps\dk_flash_browser
-git switch task/t05-portable-validation
-git pull --ff-only origin task/t05-portable-validation
-```
-
 ## Local setup
 
 1. Place the locally supplied 32-bit PPAPI Flash DLL at:
@@ -85,6 +65,8 @@ git pull --ff-only origin task/t05-portable-validation
    [Browser]
    StartUrl=http://legacy-server/
    ```
+
+   `StartUrl` is the only supported external runtime setting. It controls startup, Home/Alt+Home, and manually created new tabs. Editing `config.ini` does not require rebuilding; restart the browser to apply the change. See `docs\CONFIGURATION.md`.
 
 4. Start the development browser:
 
@@ -114,15 +96,13 @@ dist\DKFlashBrowser-win32-ia32\
 
 The generated package is local build output and is ignored by Git.
 
-## T05 portable validation
+## Portable validation
 
-After packaging, run the static validator:
+After packaging, run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\validate-portable.ps1
 ```
-
-It verifies the packaged EXE and Flash DLL are x86 PE files, checks the required portable layout, and verifies the packaged application redirects Electron profile data into the local `UserData` directory.
 
 To prepare two independent portable copies for profile-isolation testing:
 
@@ -130,13 +110,11 @@ To prepare two independent portable copies for profile-isolation testing:
 powershell -ExecutionPolicy Bypass -File .\scripts\validate-portable.ps1 -PrepareIsolationCopies
 ```
 
-Detailed runtime procedure:
+Detailed procedure: `docs\PORTABLE_VALIDATION.md`.
 
-```text
-docs\PORTABLE_VALIDATION.md
-```
+The tested legacy login is preserved across restart by a portable compatibility layer for session cookies. Each portable copy keeps its own data under its own `UserData` directory.
 
-A real 32-bit Windows machine or VM is required to claim physical 32-bit Windows validation. Static x86 PE inspection alone is not treated as a runtime pass.
+A real 32-bit Windows machine or VM is still required to claim physical 32-bit Windows runtime validation. Static x86 PE inspection alone is not treated as a runtime pass.
 
 ## Browser controls
 
