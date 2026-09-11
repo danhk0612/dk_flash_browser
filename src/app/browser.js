@@ -4,6 +4,11 @@
   const params = new URLSearchParams(window.location.search);
   const homeUrl = params.get('startUrl') || 'about:blank';
   const bookmarkStorageKey = 'dkFlashBrowser.bookmarks.v1';
+  const preferredTabWidth = 180;
+  const minimumTabWidth = 36;
+  const iconOnlyThreshold = 72;
+  const tabGap = 2;
+  const newTabReservedWidth = 41;
 
   const tabList = document.getElementById('tab-list');
   const newTabButton = document.getElementById('new-tab-button');
@@ -14,6 +19,7 @@
   const homeButton = document.getElementById('home-button');
   const bookmarkButton = document.getElementById('bookmark-button');
   const addressInput = document.getElementById('address-input');
+  const addressFavicon = document.getElementById('address-favicon');
   const bookmarkBar = document.getElementById('bookmark-bar');
   const browserPlaceholder = document.getElementById('browser-placeholder');
 
@@ -30,6 +36,29 @@
     if (!input) return '';
     if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(input)) return input;
     return 'http://' + input;
+  }
+
+  function faviconUrl(url) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+      return parsed.origin + '/favicon.ico';
+    } catch (_error) {
+      return '';
+    }
+  }
+
+  function setImageSource(image, url) {
+    const src = faviconUrl(url);
+    image.style.display = 'none';
+    image.removeAttribute('src');
+    if (!src) return;
+    image.onload = function () { image.style.display = ''; };
+    image.onerror = function () {
+      image.style.display = 'none';
+      image.removeAttribute('src');
+    };
+    image.src = src;
   }
 
   function loadBookmarks() {
@@ -63,8 +92,20 @@
       const item = document.createElement('button');
       item.className = 'bookmark-item';
       item.type = 'button';
-      item.textContent = bookmark.title || bookmark.url;
       item.title = bookmark.url;
+
+      const icon = document.createElement('img');
+      icon.className = 'bookmark-favicon';
+      icon.alt = '';
+      icon.draggable = false;
+      setImageSource(icon, bookmark.url);
+
+      const title = document.createElement('span');
+      title.className = 'bookmark-title';
+      title.textContent = bookmark.title || bookmark.url;
+
+      item.appendChild(icon);
+      item.appendChild(title);
       item.addEventListener('click', () => navigate(bookmark.url));
       item.addEventListener('contextmenu', (event) => {
         event.preventDefault();
@@ -95,6 +136,24 @@
     }
   }
 
+  function layoutTabs() {
+    const items = Array.prototype.slice.call(tabList.querySelectorAll('.tab-item'));
+    const count = items.length;
+    if (!count) return;
+
+    const available = Math.max(0, tabList.clientWidth - newTabReservedWidth - (count * tabGap));
+    let width = Math.floor(available / count);
+    width = Math.min(preferredTabWidth, width);
+    if (width < minimumTabWidth) width = minimumTabWidth;
+    const iconOnly = width <= iconOnlyThreshold;
+
+    items.forEach((item) => {
+      item.style.flexBasis = width + 'px';
+      item.style.width = width + 'px';
+      item.classList.toggle('icon-only', iconOnly);
+    });
+  }
+
   function renderTabs(state) {
     tabState = state || { activeTabId: null, tabs: [] };
     tabList.textContent = '';
@@ -103,6 +162,12 @@
       const item = document.createElement('div');
       item.className = 'tab-item' + (tab.id === tabState.activeTabId ? ' active' : '');
       item.title = tab.title || tab.url || '새 탭';
+
+      const icon = document.createElement('img');
+      icon.className = 'tab-favicon';
+      icon.alt = '';
+      icon.draggable = false;
+      setImageSource(icon, tab.url);
 
       const title = document.createElement('span');
       title.className = 'tab-title';
@@ -120,13 +185,17 @@
       });
 
       item.addEventListener('click', () => send('browser:switch-tab', tab.id));
+      item.appendChild(icon);
       item.appendChild(title);
       item.appendChild(close);
       tabList.appendChild(item);
     });
 
     tabList.appendChild(newTabButton);
-    window.requestAnimationFrame(ensureActiveTabVisible);
+    window.requestAnimationFrame(() => {
+      layoutTabs();
+      ensureActiveTabVisible();
+    });
   }
 
   function updateNavigationState(state) {
@@ -134,6 +203,7 @@
     backButton.disabled = !currentState.canGoBack;
     forwardButton.disabled = !currentState.canGoForward;
     if (currentState.url && !isEditingAddress && document.activeElement !== addressInput) addressInput.value = currentState.url;
+    setImageSource(addressFavicon, currentState.url);
     updateBookmarkButton();
   }
 
@@ -151,10 +221,11 @@
 
   newTabButton.addEventListener('click', () => send('browser:new-tab', homeUrl));
   tabList.addEventListener('wheel', (event) => {
-    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
     if (tabList.scrollWidth <= tabList.clientWidth) return;
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (!delta) return;
     event.preventDefault();
-    tabList.scrollLeft += event.deltaY;
+    tabList.scrollLeft += delta;
   }, { passive: false });
 
   backButton.addEventListener('click', () => send('browser:back'));
@@ -253,9 +324,17 @@
 
   window.addEventListener('resize', () => {
     syncBrowserBounds();
-    window.requestAnimationFrame(ensureActiveTabVisible);
+    window.requestAnimationFrame(() => {
+      layoutTabs();
+      ensureActiveTabVisible();
+    });
   });
-  if (window.ResizeObserver) new ResizeObserver(syncBrowserBounds).observe(browserPlaceholder);
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => {
+      syncBrowserBounds();
+      layoutTabs();
+    }).observe(browserPlaceholder);
+  }
 
   renderBookmarks();
   syncBrowserBounds();
