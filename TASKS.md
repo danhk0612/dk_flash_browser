@@ -33,7 +33,6 @@ Status: complete, user-accepted, and merged
 - One independent `BrowserView` per tab.
 - All tabs share `persist:dk-flash-browser` cookies/storage/session.
 - Runtime crash logging remains available under `Logs/browser.log`.
-- The user explicitly deferred reproduction of the external modern-site crash.
 
 ## T04 — Legacy popup / new-window behavior
 
@@ -47,34 +46,56 @@ Status: complete, user-accepted in current form, and merged
 
 ## T05 — Portable runtime validation
 
-Status: complete, user-accepted, and merged
+Status: complete, user-validated, and merged
 
-- Packaged executable and Flash DLL statically validated as x86 (`0x014C`).
-- Portable package layout validation passed.
-- Independent A/B portable profile isolation passed.
-- Session-cookie compatibility layer added under each portable profile so tested legacy login survives restart.
-- Physical 32-bit Windows validation: `NOT AVAILABLE` unless a real 32-bit machine/VM is later provided.
-- Detailed validation procedure: `docs/PORTABLE_VALIDATION.md`.
+- Static x86 package validation passed.
+- Portable A/B profile separation passed.
+- Login persistence after restart passed after adding session-cookie compatibility storage.
+- A real 32-bit Windows physical/VM runtime test is still `NOT AVAILABLE` unless performed later.
 
 ## T06 — Configuration finalization
 
-Status: implementation complete; awaiting acceptance
+Status: configuration behavior validated; merge is temporarily blocked by browser-process crash investigation
 
-External configuration contract is intentionally minimal:
+- External configuration contract is intentionally minimal:
+  - `[Browser] StartUrl=...`
+- `StartUrl` controls startup, Home / Alt+Home, and manually created new tabs.
+- Editing packaged `config.ini` requires only an application restart, not a rebuild.
+- Unknown sections/keys are ignored; missing/empty value falls back to `about:blank`.
 
-```ini
-[Browser]
-StartUrl=http://legacy-server/
-```
+### Stability blocker discovered during T06 validation
 
-- `Browser.StartUrl` controls startup, Home/Alt+Home, and the initial URL for manually created new tabs.
-- Default is `about:blank` if the setting is absent or empty.
-- `config.ini` is read at application startup from beside the portable executable/project root.
-- Editing `config.ini` does not require rebuilding.
-- Unknown sections/keys are ignored.
-- Full contract: `docs/CONFIGURATION.md`.
+The user reported intermittent full-process exits while:
 
-No additional runtime knobs are exposed in T06. Flash/runtime/profile/session behavior stays fixed to avoid unsupported legacy-runtime combinations.
+- operating a Flash page;
+- opening tabs / pressing Home on Naver Cafe;
+- navigating between other Naver pages.
+
+The exact action immediately before exit is not reliably reproducible. Because both Flash and ordinary modern pages can trigger it, T06 must not be merged as final until the browser-level crash is characterized.
+
+Added diagnostic hardening:
+
+- application now starts through `src/app/bootstrap.js`;
+- Electron Crash Reporter is initialized before browser renderers are created;
+- native crash dumps are stored locally under `CrashDumps/`;
+- Electron 6 `renderer-process-crashed` events are logged globally;
+- GPU crashes and main-process exit codes are logged;
+- existing `Logs/browser.log` diagnostics remain active.
+
+Relevant log tags:
+
+- `CRASH-REPORTER`
+- `RENDERER-PROCESS-CRASHED`
+- `GPU-PROCESS-CRASHED`
+- `PROCESS-EXIT`
+- existing `RENDERER-CRASH`, `GPU-CRASH`, `MAIN-UNCAUGHT`, `MAIN-REJECTION`
+
+Next validation:
+
+- rebuild the packaged browser from the latest T06 branch;
+- use the Flash site and ordinary external pages normally until either a crash occurs or reasonable use remains stable;
+- if a full exit occurs, preserve `Logs/browser.log` and the contents of `CrashDumps/`;
+- do not require an exact click sequence if it cannot be determined.
 
 ## T07 — Real legacy-system validation
 
