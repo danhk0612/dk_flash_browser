@@ -12,6 +12,12 @@ The build scripts intentionally preserve the license files shipped in the offici
 
 Chromium and its bundled components are subject to their respective open-source licenses. Those notices are supplied with the Electron runtime distribution.
 
+## Electron rcedit
+
+The Windows packaging script uses Electron's `rcedit` v2.0.0 x86 build as a **build-time tool only** to apply the DK Flash Browser icon and Windows version resources to `DKFlashBrowser.exe`.
+
+The tool is downloaded into the local ignored `.runtime\tools` directory and is not copied into the portable package or release ZIP. `rcedit` is distributed by the Electron project under its own open-source license.
+
 ## Adobe Flash Player / Pepper Flash
 
 Adobe Flash Player is not part of this repository's MIT-licensed source code.
