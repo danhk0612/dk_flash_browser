@@ -20,65 +20,51 @@ The finished application must behave like a normal lightweight desktop browser w
 
 ## T01 — Flash PoC
 
-Status: complete and validated on Windows / real legacy site
-
-- Use official Electron 6.1.12 Windows x86 runtime.
-- Load a locally supplied 32-bit `pepflashplayer.dll` 29.0.0.140.
-- Read the initial URL from `config.ini`.
-- Use a portable `UserData` directory beside the executable/project.
-- Provide local bootstrap, development-run, and x86 package scripts.
-- Validate executable launch and Flash rendering on the actual legacy site.
+Status: complete and validated
 
 ## T02 — Browser UI baseline
 
-Status: implementation complete; Windows revalidation required after input/bookmark fixes and BrowserView migration
+Status: complete, validated, and merged
 
-- Custom application shell without Whale/Chrome UI.
-- Product name: DK Flash Browser.
-- Address bar.
-- Back and forward.
-- Normal reload.
-- Hard reload / ignore cache.
-- Home button.
-- Local bookmark bar with add/remove.
-- Bookmark right-click opens an explicit delete menu; right-click itself never deletes.
-- Preserve user-entered address text while the current page is still loading or navigating.
-- Explicit address-field text/caret colors.
-- Keyboard shortcuts for address focus, bookmarks, reload, hard reload, and home.
-- Page rendering uses a native Electron `BrowserView` instead of renderer `<webview>` wrapping, to keep legacy page input behavior closer to the validated T01 path.
-- Browser chrome communicates with the active page through narrow IPC commands/state only.
-- Guest shortcut interception only on non-composing key-down events to avoid interfering with text/IME input.
-- Basic right-click download for direct link and image/media URLs.
-- Standard cut/copy/paste/select-all context actions where applicable.
-- Do not implement tabs in this task.
-
-Revalidation before merge:
-
-- Existing Flash content still renders and accepts input.
-- Address text remains visible while typing and Enter navigates to the entered value.
-- HTML input fields inside the legacy page accept normal text/IME input consistently, including initial load without requiring refresh.
-- Bookmark right-click shows `북마크 삭제` and does not remove the bookmark until selected.
-- Home/back/forward/reload/hard reload work.
-- Bookmark persistence works after restart.
-- Browser shortcuts work while the page has focus.
-- Link/image/SWF direct download works where the page exposes a downloadable URL.
-- Packaged x86 build behaves the same as development run.
+- Custom browser shell with address bar, navigation, normal/hard reload, Home, local bookmarks, context download and browser shortcuts.
+- Native `BrowserView` page rendering preserves the input-stable path established after T01.
+- Shared persistent browser session: `persist:dk-flash-browser`.
 
 ## T03 — Tabs
 
-- Multiple independent tabs.
-- New-tab button.
+Status: implementation complete; awaiting Windows validation
+
+- One independent `BrowserView` per tab.
+- All tabs share `persist:dk-flash-browser` cookies/storage/session.
+- `+` new-tab button; new tabs open `Browser.StartUrl`.
 - Tab selection and close.
-- URL/title synchronization.
-- Use one `BrowserView` per tab and preserve the T02 input-stable rendering path.
-- Preserve the T02 navigation, home, bookmarks, hard reload, and download behavior per active tab.
+- Active-tab URL/title/back/forward/loading state synchronization.
+- T02 Home, bookmarks, normal/hard reload, Flash, context download and input behavior preserved per active tab.
+- Ctrl+T: new tab.
+- Ctrl+W: close active tab; closing the final tab closes the browser window.
+- Ctrl+Tab / Ctrl+Shift+Tab: cycle tabs.
+
+Windows validation before merge:
+
+- Create 3+ tabs and switch between them repeatedly.
+- Confirm each tab preserves its own URL/history/page state.
+- Confirm address/title/back/forward state changes with the active tab.
+- Confirm Home, normal reload and hard reload act only on the active tab.
+- Confirm Flash works in multiple tabs.
+- Confirm legacy HTML/IME inputs remain stable in each tab.
+- Confirm login/session is shared between tabs.
+- Confirm bookmarks are shared browser-wide and open in the active tab.
+- Confirm Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+Shift+Tab work while the page has focus.
+- Confirm closing the active tab selects the adjacent remaining tab.
+- Confirm final-tab close exits the browser window.
+- Confirm packaged x86 build behaves the same as development run.
 
 ## T04 — Legacy popup / new-window behavior
 
 - `target="_blank"`.
 - `window.open()`.
-- Required popup behavior for the target legacy solution.
-- Preserve login/session state.
+- Decide/open required requests as DK Flash Browser tab or managed browser window.
+- Preserve shared login/session state.
 
 ## T05 — Portable runtime validation
 
