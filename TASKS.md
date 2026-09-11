@@ -120,20 +120,21 @@ See `docs/T07_VALIDATION.md` for the retained validation checklist and limitatio
 
 ## T08 — Final packaging
 
-Status: active on `task/t08-final-packaging`
+Status: complete and user-accepted; ready to merge
 
-Implemented in T08 so far:
+Completed outcomes:
 
-- application version raised to `1.0.0`;
+- application version set to `1.0.0`;
 - package script creates both `dist\DKFlashBrowser-win32-ia32\` and `dist\DKFlashBrowser-1.0.0-win32-ia32.zip`;
-- package includes `VERSION.txt`, README, project license and third-party notices;
-- portable validator checks packaged version metadata in addition to x86/runtime requirements;
-- README updated from the obsolete T06 status to final 1.0.0 usage/build/limitations documentation.
+- final package includes `VERSION.txt`, README, project license and third-party notices;
+- custom DK Flash Browser multi-size ICO is generated at build time and embedded into `DKFlashBrowser.exe`;
+- executable ProductName/FileVersion resources identify `DK Flash Browser 1.0.0`;
+- BrowserWindow/taskbar uses the packaged DK Flash Browser icon;
+- build-time Electron `rcedit` x86 tool is downloaded/cached under ignored `.runtime\tools`;
+- portable validator checks x86 PE architecture, Flash DLL, ICO structure, executable branding/version, version metadata, portable userData redirection, persistent browser partition, application resources, and icon reference;
+- final branded Windows package build completed successfully;
+- final validator result: `Static portable validation PASSED.`;
+- previously validated startup, Flash, tabs, bookmarks, zoom, feature-menu and stability workflows remain the accepted 1.0.0 runtime baseline;
+- accepted limitations are documented in README and `docs/RELEASE_1.0.0.md`.
 
-Remaining before T08 completion:
-
-- run the final Windows package script on the user environment;
-- run `scripts\validate-portable.ps1` against the generated 1.0.0 package;
-- launch the generated package and smoke-test startup, Flash, tabs, bookmarks, zoom and feature menu;
-- decide/apply the final application icon if a custom icon is required; no binary `.ico` is currently stored in the repository;
-- after successful final validation, mark T08 complete, merge the T08 PR, and optionally tag/release `v1.0.0`.
+T08 can now be merged. Creating a Git tag/GitHub Release for `v1.0.0` is a separate explicit release action.
