@@ -6,6 +6,7 @@ const { app, BrowserWindow, BrowserView, Menu, dialog, clipboard, ipcMain } = re
 
 const FLASH_VERSION = '29.0.0.140';
 const PRODUCT_NAME = 'DK Flash Browser';
+const BROWSER_PARTITION = 'persist:dk-flash-browser';
 
 function getRootDir() {
   if (process.defaultApp) {
@@ -173,7 +174,8 @@ function createBrowserView() {
   browserView = new BrowserView({
     webPreferences: {
       nodeIntegration: false,
-      plugins: true
+      plugins: true,
+      partition: BROWSER_PARTITION
     }
   });
   mainWindow.setBrowserView(browserView);
