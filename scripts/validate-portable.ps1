@@ -56,6 +56,9 @@ $Config = Join-Path $PackageDir 'config.ini'
 $UserData = Join-Path $PackageDir 'UserData'
 $AppDir = Join-Path $PackageDir 'resources\app'
 $MainJs = Join-Path $AppDir 'main.js'
+$AppManifest = Join-Path $AppDir 'package.json'
+$VersionFile = Join-Path $PackageDir 'VERSION.txt'
+$Readme = Join-Path $PackageDir 'README.md'
 $License = Join-Path $PackageDir 'LICENSE-DKFlashBrowser.txt'
 $Notices = Join-Path $PackageDir 'THIRD_PARTY_NOTICES.md'
 
@@ -64,8 +67,19 @@ Assert-X86Pe $FlashDll 'Pepper Flash DLL'
 Assert-Exists $Config 'config.ini'
 Assert-Exists $UserData 'portable UserData directory'
 Assert-Exists $MainJs 'packaged application main.js'
+Assert-Exists $AppManifest 'packaged application manifest'
+Assert-Exists $VersionFile 'VERSION.txt'
+Assert-Exists $Readme 'README.md'
 Assert-Exists $License 'project license'
 Assert-Exists $Notices 'third-party notices'
+
+$manifest = Get-Content $AppManifest -Raw | ConvertFrom-Json
+$manifestVersion = [string]$manifest.version
+$packageVersion = (Get-Content $VersionFile -Raw).Trim()
+if (-not $manifestVersion -or $manifestVersion -ne $packageVersion) {
+    throw "Version mismatch: app=$manifestVersion package=$packageVersion"
+}
+Write-Host "[OK] package version metadata matches: $packageVersion"
 
 $mainText = Get-Content $MainJs -Raw
 if ($mainText -notmatch "app\.setPath\('userData',\s*userDataPath\)") {
@@ -104,4 +118,4 @@ if ($PrepareIsolationCopies) {
 
 Write-Host ''
 Write-Host 'Static portable validation PASSED.'
-Write-Host 'Runtime validation is still required on Windows: copied-folder launch, profile isolation, Flash, and x86 execution on target OS.'
+Write-Host 'Runtime validation is still required on Windows for the final 1.0.0 package.'
