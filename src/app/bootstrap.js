@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { app, BrowserWindow, crashReporter, dialog } = require('electron');
 
-const DEFAULT_START_URL = 'https://software.mydepot.kr/';
+const DEFAULT_START_URL = 'https://html.duckduckgo.com/html';
 const MIN_FLASH_SIZE = 4 * 1024 * 1024;
 
 function getRootDir() {
