@@ -14,9 +14,9 @@
 
 ## Current status
 
-T01 through T05 are complete and merged. T06 finalizes the external configuration contract.
+T01 through T05 are complete and merged. T06 configuration behavior is implemented and has been functionally validated, but final merge is temporarily blocked by an intermittent full-process crash reported on both Flash content and ordinary external pages.
 
-The current popup implementation routes `target="_blank"` / `window.open()` into browser tabs. A future refinement may preserve true window requests as lightweight content-only windows if a real legacy workflow requires that distinction.
+The current popup implementation routes `target="_blank"` / `window.open()` into browser tabs. The product requirement allows a future refinement where true window requests open as lightweight content-only windows, but no rewrite is required unless a real legacy workflow needs it.
 
 ## Local development folder
 
@@ -44,6 +44,26 @@ git switch main
 git pull --ff-only origin main
 ```
 
+### Test the current T06 branch
+
+First checkout:
+
+```bat
+D:
+cd \PortableApps\dk_flash_browser
+git fetch origin
+git switch -c task/t06-config-finalization --track origin/task/t06-config-finalization
+```
+
+Later updates:
+
+```bat
+D:
+cd \PortableApps\dk_flash_browser
+git switch task/t06-config-finalization
+git pull --ff-only origin task/t06-config-finalization
+```
+
 ## Local setup
 
 1. Place the locally supplied 32-bit PPAPI Flash DLL at:
@@ -65,8 +85,6 @@ git pull --ff-only origin main
    [Browser]
    StartUrl=http://legacy-server/
    ```
-
-   `StartUrl` is the only supported external runtime setting. It controls startup, Home/Alt+Home, and manually created new tabs. Editing `config.ini` does not require rebuilding; restart the browser to apply the change. See `docs\CONFIGURATION.md`.
 
 4. Start the development browser:
 
@@ -90,31 +108,13 @@ dist\DKFlashBrowser-win32-ia32\
   config.ini
   Flash\pepflashplayer.dll
   UserData\
+  Logs\
+  CrashDumps\
   resources\app\
   ... Electron runtime files
 ```
 
 The generated package is local build output and is ignored by Git.
-
-## Portable validation
-
-After packaging, run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\validate-portable.ps1
-```
-
-To prepare two independent portable copies for profile-isolation testing:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\validate-portable.ps1 -PrepareIsolationCopies
-```
-
-Detailed procedure: `docs\PORTABLE_VALIDATION.md`.
-
-The tested legacy login is preserved across restart by a portable compatibility layer for session cookies. Each portable copy keeps its own data under its own `UserData` directory.
-
-A real 32-bit Windows machine or VM is still required to claim physical 32-bit Windows runtime validation. Static x86 PE inspection alone is not treated as a runtime pass.
 
 ## Browser controls
 
@@ -131,6 +131,33 @@ A real 32-bit Windows machine or VM is still required to claim physical 32-bit W
 
 Bookmarks and browser data are local to the portable profile. No Chrome sign-in, synchronization, Web Store, or Google service is used.
 
+## Configuration
+
+The supported external configuration contract is intentionally minimal:
+
+```ini
+[Browser]
+StartUrl=http://legacy-server/
+```
+
+`StartUrl` controls startup, Home / Alt+Home, and manually created new tabs. Editing packaged `config.ini` requires only a restart, not a rebuild. See `docs\CONFIGURATION.md`.
+
+## Portable validation
+
+After packaging, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\validate-portable.ps1
+```
+
+To prepare independent A/B copies:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\validate-portable.ps1 -PrepareIsolationCopies
+```
+
+Detailed procedure: `docs\PORTABLE_VALIDATION.md`.
+
 ## Diagnostics
 
 Runtime diagnostics are written under:
@@ -139,7 +166,15 @@ Runtime diagnostics are written under:
 Logs\browser.log
 ```
 
-The log includes main-process exceptions and renderer/GPU crash information intended for troubleshooting the intentionally old Chromium/Electron runtime.
+Native Electron/Chromium crash dumps are written under:
+
+```text
+CrashDumps\
+```
+
+The browser now starts through an early diagnostic bootstrap that enables Electron Crash Reporter before renderer processes are created. Useful log tags include `CRASH-REPORTER`, `RENDERER-PROCESS-CRASHED`, `GPU-PROCESS-CRASHED`, `PROCESS-EXIT`, `MAIN-UNCAUGHT`, and `RENDERER-CRASH`.
+
+If an intermittent full-process exit occurs and the exact click sequence is unknown, preserve `Logs\browser.log` and the files under `CrashDumps\`; those are sufficient to distinguish renderer/GPU/main/native failures in many cases.
 
 ## Important licensing note
 
