@@ -7,6 +7,7 @@ const { app, BrowserWindow, BrowserView, Menu, dialog, clipboard, ipcMain, sessi
 const FLASH_VERSION = '29.0.0.140';
 const PRODUCT_NAME = 'DK Flash Browser';
 const BROWSER_PARTITION = 'persist:dk-flash-browser';
+const ZOOM_LEVELS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 
 function getRootDir() {
   return process.defaultApp ? path.resolve(__dirname, '..', '..') : path.dirname(process.execPath);
@@ -204,12 +205,17 @@ function getTab(id) {
   return tabs.find((tab) => tab.id === id) || null;
 }
 
+function getTabByWebContents(contents) {
+  return tabs.find((tab) => safeWebContents(tab) === contents) || null;
+}
+
 function getActiveTab() {
   return getTab(activeTabId);
 }
 
 function tabState(tab) {
   const wc = safeWebContents(tab);
+  const zoomPercent = Math.round((Number(tab.zoomFactor) || 1) * 100);
   if (!wc) {
     return {
       id: tab.id,
@@ -218,7 +224,8 @@ function tabState(tab) {
       canGoBack: false,
       canGoForward: false,
       isLoading: false,
-      crashed: !!tab.crashed
+      crashed: !!tab.crashed,
+      zoomPercent: zoomPercent
     };
   }
 
@@ -229,8 +236,15 @@ function tabState(tab) {
     canGoBack: !tab.crashed && wc.canGoBack(),
     canGoForward: !tab.crashed && wc.canGoForward(),
     isLoading: !tab.crashed && wc.isLoading(),
-    crashed: !!tab.crashed
+    crashed: !!tab.crashed,
+    zoomPercent: zoomPercent
   };
+}
+
+function updateWindowTitle(state) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const title = state && state.title && state.title !== '새 탭' ? state.title + ' - ' + PRODUCT_NAME : PRODUCT_NAME;
+  mainWindow.setTitle(title);
 }
 
 function sendTabs() {
@@ -243,7 +257,9 @@ function sendTabs() {
 
 function sendBrowserState(tab) {
   if (!mainWindow || mainWindow.isDestroyed() || !tab || tab.id !== activeTabId) return;
-  mainWindow.webContents.send('browser:state', tabState(tab));
+  const state = tabState(tab);
+  updateWindowTitle(state);
+  mainWindow.webContents.send('browser:state', state);
 }
 
 function downloadWithPrompt(contents, url, filename) {
@@ -267,6 +283,62 @@ function downloadWithPrompt(contents, url, filename) {
   } catch (error) {
     writeLog('DOWNLOAD', 'Failed to start download for ' + url, error);
   }
+}
+
+function downloadFlashFromTab(tab) {
+  const wc = safeWebContents(tab);
+  if (!wc) return;
+  const candidates = Array.isArray(tab.flashUrls) ? tab.flashUrls.filter(Boolean) : [];
+  if (!candidates.length) {
+    dialog.showMessageBoxSync(mainWindow || undefined, {
+      type: 'info',
+      title: PRODUCT_NAME,
+      message: '현재 페이지에서 직접 다운로드할 Flash 파일 주소를 찾지 못했습니다.',
+      detail: 'Pepper Flash 자체 우클릭 메뉴는 브라우저가 확장할 수 없습니다. 페이지가 SWF 주소를 HTML에 노출하는 경우에만 다운로드할 수 있습니다.',
+      buttons: ['확인'],
+      defaultId: 0,
+      noLink: true
+    });
+    return;
+  }
+  downloadWithPrompt(wc, candidates[0], path.basename(new URL(candidates[0]).pathname) || 'flash.swf');
+}
+
+function nearestZoomIndex(value) {
+  let best = 0;
+  let distance = Infinity;
+  ZOOM_LEVELS.forEach((level, index) => {
+    const nextDistance = Math.abs(level - value);
+    if (nextDistance < distance) {
+      best = index;
+      distance = nextDistance;
+    }
+  });
+  return best;
+}
+
+function setTabZoom(tab, factor) {
+  const wc = safeWebContents(tab);
+  if (!wc) return;
+  const numeric = Number(factor) || 1;
+  const clamped = Math.max(ZOOM_LEVELS[0], Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], numeric));
+  tab.zoomFactor = clamped;
+  try {
+    wc.setZoomFactor(clamped);
+  } catch (error) {
+    writeLog('ZOOM', 'Failed to set zoom factor for tab ' + tab.id, error);
+  }
+  sendBrowserState(tab);
+  sendTabs();
+}
+
+function changeTabZoom(tab, direction) {
+  if (!tab) return;
+  const current = Number(tab.zoomFactor) || 1;
+  let index = nearestZoomIndex(current);
+  index += direction > 0 ? 1 : -1;
+  index = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index));
+  setTabZoom(tab, ZOOM_LEVELS[index]);
 }
 
 function cycleTab(direction) {
@@ -326,6 +398,26 @@ function installBrowserHandlers(tab) {
         cycleTab(input.shift ? -1 : 1);
         return;
       }
+      if (input.control && input.shift && key === 's') {
+        event.preventDefault();
+        downloadFlashFromTab(tab);
+        return;
+      }
+      if (input.control && !input.alt && (key === '+' || key === '=')) {
+        event.preventDefault();
+        changeTabZoom(tab, 1);
+        return;
+      }
+      if (input.control && !input.alt && key === '-') {
+        event.preventDefault();
+        changeTabZoom(tab, -1);
+        return;
+      }
+      if (input.control && !input.alt && key === '0') {
+        event.preventDefault();
+        setTabZoom(tab, 1);
+        return;
+      }
       if ((input.control && input.shift && key === 'r') || (input.control && key === 'f5')) {
         event.preventDefault();
         if (!contents.isDestroyed()) contents.reloadIgnoringCache();
@@ -366,8 +458,12 @@ function installBrowserHandlers(tab) {
         template.push({ label: '링크 주소 복사', click: () => clipboard.writeText(params.linkURL) });
       }
       if (params.srcURL && params.srcURL !== params.linkURL) {
-        const label = params.mediaType === 'image' ? '이미지 다운로드...' : '미디어 다운로드...';
+        const isFlash = params.mediaType === 'plugin' || /\.swf(?:$|[?#])/i.test(params.srcURL);
+        const label = isFlash ? 'Flash 다운로드...' : (params.mediaType === 'image' ? '이미지 다운로드...' : '미디어 다운로드...');
         template.push({ label, click: () => downloadWithPrompt(contents, params.srcURL, params.suggestedFilename) });
+      }
+      if (Array.isArray(tab.flashUrls) && tab.flashUrls.length) {
+        template.push({ label: '페이지 Flash 다운로드...', click: () => downloadFlashFromTab(tab) });
       }
       if (template.length) template.push({ type: 'separator' });
       if (params.isEditable) {
@@ -413,11 +509,14 @@ function createTab(url, makeActive) {
     id: nextTabId++,
     crashed: false,
     lastUrl: url || browserConfig.startUrl,
+    zoomFactor: 1,
+    flashUrls: [],
     view: new BrowserView({
       webPreferences: {
         nodeIntegration: false,
         plugins: true,
-        partition: BROWSER_PARTITION
+        partition: BROWSER_PARTITION,
+        preload: path.join(__dirname, 'page-preload.js')
       }
     })
   };
@@ -527,11 +626,26 @@ ipcMain.on('browser:bounds', (_event, bounds) => {
     }
   }
 });
+ipcMain.on('browser:page-mousedown', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:close-bookmark-menus');
+});
+ipcMain.on('browser:zoom-wheel', (event, direction) => {
+  const tab = getTabByWebContents(event.sender);
+  if (tab) changeTabZoom(tab, Number(direction) > 0 ? 1 : -1);
+});
+ipcMain.on('browser:flash-candidates', (event, urls) => {
+  const tab = getTabByWebContents(event.sender);
+  if (!tab) return;
+  tab.flashUrls = Array.isArray(urls) ? urls.filter((url) => typeof url === 'string' && url) : [];
+});
 ipcMain.on('browser:navigate', (_event, url) => {
   const wc = activeContents();
   const tab = getActiveTab();
   if (wc && url) {
-    if (tab) tab.lastUrl = url;
+    if (tab) {
+      tab.lastUrl = url;
+      tab.flashUrls = [];
+    }
     wc.loadURL(url).catch((error) => writeLog('NAVIGATION', 'Navigation failed: ' + url, error));
   }
 });
@@ -553,11 +667,17 @@ ipcMain.on('browser:hard-reload', () => {
 });
 ipcMain.on('browser:home', () => {
   const wc = activeContents();
+  const tab = getActiveTab();
+  if (tab) tab.flashUrls = [];
   if (wc) wc.loadURL(browserConfig.startUrl).catch((error) => writeLog('NAVIGATION', 'Home navigation failed', error));
 });
 ipcMain.on('browser:focus-page', () => {
   const wc = activeContents();
   if (wc) wc.focus();
+});
+ipcMain.on('browser:zoom-reset', () => {
+  const tab = getActiveTab();
+  if (tab) setTabZoom(tab, 1);
 });
 ipcMain.on('browser:new-tab', (_event, url) => createTab(url || browserConfig.startUrl, true));
 ipcMain.on('browser:switch-tab', (_event, id) => activateTab(Number(id), true));
