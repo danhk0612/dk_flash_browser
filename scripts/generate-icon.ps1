@@ -15,7 +15,7 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 Add-Type -AssemblyName System.Drawing
 
 function New-DkFlashIconPngBytes([int]$Size) {
-    $bitmap = New-Object System.Drawing.Bitmap($Size, $Size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $bitmap = [System.Drawing.Bitmap]::new($Size, $Size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
     try {
         $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
@@ -24,8 +24,8 @@ function New-DkFlashIconPngBytes([int]$Size) {
         $graphics.Clear([System.Drawing.Color]::Transparent)
 
         $pad = [Math]::Max(1.0, $Size * 0.055)
-        $outer = New-Object System.Drawing.RectangleF($pad, $pad, $Size - (2 * $pad), $Size - (2 * $pad))
-        $outerBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+        $outer = [System.Drawing.RectangleF]::new($pad, $pad, $Size - (2 * $pad), $Size - (2 * $pad))
+        $outerBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
             $outer,
             [System.Drawing.Color]::FromArgb(255, 16, 54, 108),
             [System.Drawing.Color]::FromArgb(255, 5, 20, 52),
@@ -34,14 +34,14 @@ function New-DkFlashIconPngBytes([int]$Size) {
         try { $graphics.FillEllipse($outerBrush, $outer) } finally { $outerBrush.Dispose() }
 
         $ringInset = $Size * 0.105
-        $ringRect = New-Object System.Drawing.RectangleF($ringInset, $ringInset, $Size - (2 * $ringInset), $Size - (2 * $ringInset))
+        $ringRect = [System.Drawing.RectangleF]::new($ringInset, $ringInset, $Size - (2 * $ringInset), $Size - (2 * $ringInset))
         $ringWidth = [Math]::Max(1.0, $Size * 0.045)
-        $ringPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(235, 112, 211, 255), $ringWidth)
+        $ringPen = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(235, 112, 211, 255), $ringWidth)
         try { $graphics.DrawEllipse($ringPen, $ringRect) } finally { $ringPen.Dispose() }
 
         $globeInset = $Size * 0.18
-        $globeRect = New-Object System.Drawing.RectangleF($globeInset, $globeInset, $Size - (2 * $globeInset), $Size - (2 * $globeInset))
-        $globeBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+        $globeRect = [System.Drawing.RectangleF]::new($globeInset, $globeInset, $Size - (2 * $globeInset), $Size - (2 * $globeInset))
+        $globeBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
             $globeRect,
             [System.Drawing.Color]::FromArgb(255, 42, 176, 255),
             [System.Drawing.Color]::FromArgb(255, 0, 73, 170),
@@ -51,7 +51,7 @@ function New-DkFlashIconPngBytes([int]$Size) {
 
         if ($Size -ge 24) {
             $gridWidth = [Math]::Max(1.0, $Size * 0.012)
-            $gridPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(135, 205, 240, 255), $gridWidth)
+            $gridPen = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(135, 205, 240, 255), $gridWidth)
             try {
                 $graphics.DrawEllipse($gridPen, $globeRect)
                 $middleY = $Size * 0.50
@@ -63,34 +63,38 @@ function New-DkFlashIconPngBytes([int]$Size) {
             } finally { $gridPen.Dispose() }
         }
 
-        $shadow = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(95, 0, 0, 0))
+        $shadow = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(95, 0, 0, 0))
         try {
-            $shadowRect = New-Object System.Drawing.RectangleF($Size * 0.43, $Size * 0.43, $Size * 0.42, $Size * 0.42)
+            $shadowRect = [System.Drawing.RectangleF]::new($Size * 0.43, $Size * 0.43, $Size * 0.42, $Size * 0.42)
             $graphics.FillEllipse($shadow, $shadowRect)
         } finally { $shadow.Dispose() }
 
-        # A generic lightning mark conveys Flash/legacy-content support without
-        # copying Adobe's retired Flash Player logo.
+        # Generic lightning conveys legacy/Flash content support without copying
+        # the retired Adobe Flash Player logo.
         $points = [System.Drawing.PointF[]]@(
-            (New-Object System.Drawing.PointF($Size * 0.59, $Size * 0.29)),
-            (New-Object System.Drawing.PointF($Size * 0.42, $Size * 0.55)),
-            (New-Object System.Drawing.PointF($Size * 0.54, $Size * 0.55)),
-            (New-Object System.Drawing.PointF($Size * 0.43, $Size * 0.80)),
-            (New-Object System.Drawing.PointF($Size * 0.73, $Size * 0.48)),
-            (New-Object System.Drawing.PointF($Size * 0.59, $Size * 0.48))
+            [System.Drawing.PointF]::new($Size * 0.59, $Size * 0.29),
+            [System.Drawing.PointF]::new($Size * 0.42, $Size * 0.55),
+            [System.Drawing.PointF]::new($Size * 0.54, $Size * 0.55),
+            [System.Drawing.PointF]::new($Size * 0.43, $Size * 0.80),
+            [System.Drawing.PointF]::new($Size * 0.73, $Size * 0.48),
+            [System.Drawing.PointF]::new($Size * 0.59, $Size * 0.48)
         )
-        $boltBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
-            (New-Object System.Drawing.RectangleF($Size * 0.40, $Size * 0.28, $Size * 0.35, $Size * 0.53)),
+        $boltRect = [System.Drawing.RectangleF]::new($Size * 0.40, $Size * 0.28, $Size * 0.35, $Size * 0.53)
+        $boltBrush = [System.Drawing.Drawing2D.LinearGradientBrush]::new(
+            $boltRect,
             [System.Drawing.Color]::FromArgb(255, 255, 231, 87),
             [System.Drawing.Color]::FromArgb(255, 255, 126, 30),
             90.0
         )
         try { $graphics.FillPolygon($boltBrush, $points) } finally { $boltBrush.Dispose() }
 
-        $boltOutline = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(235, 255, 255, 255), [Math]::Max(1.0, $Size * 0.018))
+        $boltOutline = [System.Drawing.Pen]::new(
+            [System.Drawing.Color]::FromArgb(235, 255, 255, 255),
+            [Math]::Max(1.0, $Size * 0.018)
+        )
         try { $graphics.DrawPolygon($boltOutline, $points) } finally { $boltOutline.Dispose() }
 
-        $stream = New-Object System.IO.MemoryStream
+        $stream = [System.IO.MemoryStream]::new()
         try {
             $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
             return $stream.ToArray()
@@ -109,7 +113,7 @@ foreach ($size in $sizes) {
 }
 
 $file = [System.IO.File]::Open($OutputPath, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write)
-$writer = New-Object System.IO.BinaryWriter($file)
+$writer = [System.IO.BinaryWriter]::new($file)
 try {
     # ICONDIR
     $writer.Write([UInt16]0)
@@ -133,7 +137,7 @@ try {
     }
 
     foreach ($bytes in $images) {
-        $writer.Write($bytes)
+        $writer.Write([Byte[]]$bytes)
     }
 }
 finally {
