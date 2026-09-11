@@ -29,7 +29,7 @@ function writeBootstrapLog(type, message, error) {
 
 try {
   // Electron 6 does not support app.setPath('crashDumps', ...).
-  // Keep all Crashpad data portable by setting userData before crashReporter starts.
+  // Keep the portable browser profile fixed before Crashpad starts.
   fs.mkdirSync(userDataPath, { recursive: true });
   app.setPath('userData', userDataPath);
 
@@ -61,6 +61,36 @@ try {
 } catch (error) {
   writeBootstrapLog('CRASH-REPORTER', 'Failed to initialize crash reporter', error);
 }
+
+// Electron 5-7 on Windows has known native BrowserView lifecycle crashes when a
+// BrowserView WebContents is explicitly destroyed while native view/layout work
+// is still in flight. DK Flash Browser uses BrowserViews as tabs, so stability is
+// more important than reclaiming a closed tab immediately. Closed BrowserView
+// renderers are left for Electron/OS cleanup when the application exits.
+app.on('web-contents-created', (_event, contents) => {
+  try {
+    if (!contents || typeof contents.getType !== 'function' || contents.getType() !== 'browserView') return;
+    const originalDestroy = contents.destroy.bind(contents);
+    let destroySuppressed = false;
+
+    contents.destroy = function guardedBrowserViewDestroy() {
+      if (app.isQuitting) {
+        return originalDestroy();
+      }
+      if (!destroySuppressed) {
+        destroySuppressed = true;
+        writeBootstrapLog('BROWSERVIEW-LIFECYCLE', 'Suppressed runtime BrowserView destroy for webContents=' + String(contents.id));
+      }
+      return undefined;
+    };
+  } catch (error) {
+    writeBootstrapLog('BROWSERVIEW-LIFECYCLE', 'Failed to install BrowserView destroy guard', error);
+  }
+});
+
+app.on('before-quit', () => {
+  app.isQuitting = true;
+});
 
 app.on('renderer-process-crashed', (_event, webContents, killed) => {
   let url = '';
