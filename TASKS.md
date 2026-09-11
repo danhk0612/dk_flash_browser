@@ -120,7 +120,7 @@ See `docs/T07_VALIDATION.md` for the retained validation checklist and limitatio
 
 ## T08 — Final packaging
 
-Status: complete and user-accepted; ready to merge
+Status: complete, user-accepted, and merged as `74ab39cd62992aeae7ea74990575be3ed0463e42`
 
 Completed outcomes:
 
@@ -134,7 +134,32 @@ Completed outcomes:
 - portable validator checks x86 PE architecture, Flash DLL, ICO structure, executable branding/version, version metadata, portable userData redirection, persistent browser partition, application resources, and icon reference;
 - final branded Windows package build completed successfully;
 - final validator result: `Static portable validation PASSED.`;
-- previously validated startup, Flash, tabs, bookmarks, zoom, feature-menu and stability workflows remain the accepted 1.0.0 runtime baseline;
-- accepted limitations are documented in README and `docs/RELEASE_1.0.0.md`.
+- previously validated startup, Flash, tabs, bookmarks, zoom, feature-menu and stability workflows remain the accepted 1.0.0 runtime baseline.
 
-T08 can now be merged. Creating a Git tag/GitHub Release for `v1.0.0` is a separate explicit release action.
+## T09 — Executable launch arguments
+
+Status: complete, user-validated, and merged as `7e5eda64fe8689ee14a043bae097c7d29ddde1c8`
+
+Completed outcomes:
+
+- `--start-maximized` starts the browser maximized;
+- first non-option argument opens as the first-tab URL/address;
+- bare address arguments are normalized to `http://...`;
+- command-line URL overrides only the initial tab and does not modify `config.ini`;
+- Home and later new tabs continue to use `[Browser] StartUrl`;
+- maximized and URL arguments can be combined;
+- packaged executable behavior was validated by the user.
+
+## T10 — User documentation / public release preparation
+
+Status: active on `task/t10-user-docs-release`
+
+Scope:
+
+- rewrite README around end-user installation and usage rather than development history;
+- make the EOL security model and user responsibility prominent;
+- state clearly that Flash DLL is not included and must be lawfully obtained/provided by the user at `Flash\pepflashplayer.dll`;
+- keep DK Flash Browser's own source under the standard MIT License;
+- separate third-party licensing from the project's MIT license;
+- add a repository security policy for the legacy-runtime support boundary;
+- after documentation review/merge, the remaining release action is optional explicit `v1.0.0` tag/GitHub Release publication.
