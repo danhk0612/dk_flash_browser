@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path -Parent $PSScriptRoot
+$ConfigExample = Join-Path $Root 'config.example.ini'
 if (-not $PackageDir) {
     if ($PublicRelease) {
         $PackageDir = Join-Path $Root 'dist\DKFlashBrowser-public-win32-ia32'
@@ -110,6 +111,16 @@ Assert-Exists $VersionFile 'VERSION.txt'
 Assert-Exists $Readme 'README.md'
 Assert-Exists $License 'project license'
 Assert-Exists $Notices 'third-party notices'
+
+if ($PublicRelease) {
+    Assert-Exists $ConfigExample 'repository default config.example.ini'
+    $packagedConfigHash = (Get-FileHash $Config -Algorithm SHA256).Hash
+    $defaultConfigHash = (Get-FileHash $ConfigExample -Algorithm SHA256).Hash
+    if ($packagedConfigHash -ne $defaultConfigHash) {
+        throw 'Public release config.ini does not exactly match repository config.example.ini. A local/private config may have leaked into the package.'
+    }
+    Write-Host '[OK] public release config.ini exactly matches config.example.ini'
+}
 
 $manifest = Get-Content $AppManifest -Raw | ConvertFrom-Json
 $manifestVersion = [string]$manifest.version
