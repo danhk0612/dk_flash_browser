@@ -26,6 +26,7 @@
   let currentState = { id: null, url: '', title: '', canGoBack: false, canGoForward: false, isLoading: false };
   let tabState = { activeTabId: null, tabs: [] };
   let isEditingAddress = false;
+  const faviconCache = Object.create(null);
 
   function send(channel, payload) {
     window.dkBrowser.send(channel, payload);
@@ -38,23 +39,53 @@
     return 'http://' + input;
   }
 
-  function faviconUrl(url) {
+  function urlOrigin(url) {
     try {
       const parsed = new URL(url);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
-      return parsed.origin + '/favicon.ico';
+      return parsed.origin;
     } catch (_error) {
       return '';
     }
   }
 
-  function setImageSource(image, url) {
-    const src = faviconUrl(url);
+  function fallbackFaviconUrl(url) {
+    const origin = urlOrigin(url);
+    return origin ? origin + '/favicon.ico' : '';
+  }
+
+  function cacheFavicon(pageUrl, favicon) {
+    if (!pageUrl || !favicon) return;
+    faviconCache[pageUrl] = favicon;
+    const origin = urlOrigin(pageUrl);
+    if (origin) faviconCache[origin] = favicon;
+  }
+
+  function faviconForUrl(url) {
+    if (!url) return '';
+    const origin = urlOrigin(url);
+    return faviconCache[url] || (origin ? faviconCache[origin] : '') || fallbackFaviconUrl(url);
+  }
+
+  function setImageSource(image, pageUrl) {
+    const src = faviconForUrl(pageUrl);
     image.style.display = 'none';
     image.removeAttribute('src');
     if (!src) return;
     image.onload = function () { image.style.display = ''; };
     image.onerror = function () {
+      if (src !== fallbackFaviconUrl(pageUrl)) {
+        const fallback = fallbackFaviconUrl(pageUrl);
+        if (fallback) {
+          image.onload = function () { image.style.display = ''; };
+          image.onerror = function () {
+            image.style.display = 'none';
+            image.removeAttribute('src');
+          };
+          image.src = fallback;
+          return;
+        }
+      }
       image.style.display = 'none';
       image.removeAttribute('src');
     };
@@ -207,6 +238,16 @@
     updateBookmarkButton();
   }
 
+  function handleFavicon(payload) {
+    if (!payload || !payload.url || !payload.favicon) return;
+    cacheFavicon(payload.url, payload.favicon);
+    if (currentState.url && (currentState.url === payload.url || urlOrigin(currentState.url) === urlOrigin(payload.url))) {
+      setImageSource(addressFavicon, currentState.url);
+    }
+    renderTabs(tabState);
+    renderBookmarks();
+  }
+
   function navigate(value) {
     const url = normalizeUrl(value);
     if (!url) return;
@@ -268,6 +309,7 @@
 
   window.dkBrowser.on('browser:state', updateNavigationState);
   window.dkBrowser.on('browser:tabs', renderTabs);
+  window.dkBrowser.on('browser:favicon', handleFavicon);
   window.dkBrowser.on('browser:focus-address', () => {
     isEditingAddress = true;
     addressInput.focus();
