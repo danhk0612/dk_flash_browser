@@ -7,6 +7,7 @@ const { app, BrowserWindow, BrowserView, Menu, dialog, clipboard, ipcMain, sessi
 const FLASH_VERSION = '29.0.0.140';
 const PRODUCT_NAME = 'DK Flash Browser';
 const BROWSER_PARTITION = 'persist:dk-flash-browser';
+const ZOOM_LEVELS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 
 function getRootDir() {
   return process.defaultApp ? path.resolve(__dirname, '..', '..') : path.dirname(process.execPath);
@@ -26,23 +27,15 @@ function writeLog(type, message, error) {
     const details = error && error.stack ? error.stack : (error ? String(error) : '');
     const line = '[' + new Date().toISOString() + '] [' + type + '] ' + message + (details ? '\n' + details : '') + '\n';
     fs.appendFileSync(logPath, line, 'utf8');
-  } catch (_error) {
-    // Logging must never crash the browser.
-  }
+  } catch (_error) {}
 }
 
-process.on('uncaughtException', (error) => {
-  writeLog('MAIN-UNCAUGHT', 'Uncaught exception in main process', error);
-});
-
-process.on('unhandledRejection', (reason) => {
-  writeLog('MAIN-REJECTION', 'Unhandled promise rejection in main process', reason);
-});
+process.on('uncaughtException', (error) => writeLog('MAIN-UNCAUGHT', 'Uncaught exception in main process', error));
+process.on('unhandledRejection', (reason) => writeLog('MAIN-REJECTION', 'Unhandled promise rejection in main process', reason));
 
 function readBrowserConfig(filePath) {
   const config = { startUrl: 'about:blank' };
   if (!fs.existsSync(filePath)) return config;
-
   const lines = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
   let section = '';
   for (const rawLine of lines) {
@@ -93,7 +86,6 @@ function sessionCookieKey(cookie) {
 function sessionCookieDetails(cookie) {
   const domain = String(cookie.domain || '').replace(/^\./, '');
   if (!domain || !cookie.name) return null;
-
   const details = {
     url: (cookie.secure ? 'https://' : 'http://') + domain + '/',
     name: cookie.name,
@@ -102,7 +94,6 @@ function sessionCookieDetails(cookie) {
     secure: !!cookie.secure,
     httpOnly: !!cookie.httpOnly
   };
-
   if (!cookie.hostOnly && cookie.domain) details.domain = cookie.domain;
   if (cookie.sameSite) details.sameSite = cookie.sameSite;
   return details;
@@ -158,13 +149,11 @@ async function initializeSessionCookiePersistence() {
 
   browserSession.cookies.on('changed', (_event, cookie, _cause, removed) => {
     if (restoring || !cookie || !cookie.name || !cookie.domain) return;
-
     const key = sessionCookieKey(cookie);
     if (removed || !cookie.session) {
       if (savedCookies.delete(key)) saveSessionCookieBackup(savedCookies);
       return;
     }
-
     savedCookies.set(key, {
       name: cookie.name,
       value: cookie.value || '',
@@ -178,11 +167,8 @@ async function initializeSessionCookiePersistence() {
     saveSessionCookieBackup(savedCookies);
   });
 
-  try {
-    await browserSession.cookies.flushStore();
-  } catch (error) {
-    writeLog('SESSION-COOKIE', 'Failed to flush persistent cookie store', error);
-  }
+  try { await browserSession.cookies.flushStore(); }
+  catch (error) { writeLog('SESSION-COOKIE', 'Failed to flush persistent cookie store', error); }
 }
 
 app.commandLine.appendSwitch('ppapi-flash-path', flashPath);
@@ -208,6 +194,83 @@ function getActiveTab() {
   return getTab(activeTabId);
 }
 
+function actualZoomFactor(wc) {
+  if (!wc || wc.isDestroyed()) return 1;
+  try {
+    const factor = Number(wc.getZoomFactor());
+    return Number.isFinite(factor) && factor > 0 ? factor : 1;
+  } catch (_error) {
+    return 1;
+  }
+}
+
+function tabZoomPercent(wc) {
+  return Math.round(actualZoomFactor(wc) * 100);
+}
+
+function notifyZoomState(wc, factorOverride) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const factor = Number(factorOverride) > 0 ? Number(factorOverride) : actualZoomFactor(wc);
+  mainWindow.webContents.send('browser:zoom-state', {
+    zoomFactor: factor,
+    zoomPercent: Math.round(factor * 100)
+  });
+}
+
+function nearestZoomIndex(value) {
+  let best = 0;
+  let distance = Infinity;
+  ZOOM_LEVELS.forEach((level, index) => {
+    const nextDistance = Math.abs(level - value);
+    if (nextDistance < distance) {
+      best = index;
+      distance = nextDistance;
+    }
+  });
+  return best;
+}
+
+function setContentsZoom(wc, factor) {
+  if (!wc || wc.isDestroyed()) return;
+  const clamped = Math.max(ZOOM_LEVELS[0], Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], Number(factor) || 1));
+  try {
+    wc.setZoomFactor(clamped);
+    notifyZoomState(wc, clamped);
+    setTimeout(() => {
+      if (wc && !wc.isDestroyed()) notifyZoomState(wc);
+    }, 100);
+  } catch (error) {
+    writeLog('ZOOM', 'Failed to set zoom factor', error);
+  }
+}
+
+function changeContentsZoom(wc, direction) {
+  if (!wc || wc.isDestroyed()) return;
+  let index = nearestZoomIndex(actualZoomFactor(wc));
+  index += Number(direction) > 0 ? 1 : -1;
+  index = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index));
+  setContentsZoom(wc, ZOOM_LEVELS[index]);
+}
+
+function handleZoomShortcut(event, input, wc) {
+  if (!input || !input.control || input.alt) return false;
+  const type = String(input.type || '').toLowerCase();
+  if (type.indexOf('keydown') < 0) return false;
+
+  const key = String(input.key || '').toLowerCase();
+  const code = String(input.code || '').toLowerCase();
+  const zoomIn = key === '+' || key === '=' || key === 'add' || code === 'equal' || code === 'numpadadd';
+  const zoomOut = key === '-' || key === 'subtract' || code === 'minus' || code === 'numpadsubtract';
+  const zoomReset = key === '0' || code === 'digit0' || code === 'numpad0';
+  if (!zoomIn && !zoomOut && !zoomReset) return false;
+
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  writeLog('ZOOM-KEY', 'key=' + key + ' code=' + code + ' shift=' + String(!!input.shift));
+  if (zoomReset) setContentsZoom(wc, 1);
+  else changeContentsZoom(wc, zoomIn ? 1 : -1);
+  return true;
+}
+
 function tabState(tab) {
   const wc = safeWebContents(tab);
   if (!wc) {
@@ -218,10 +281,10 @@ function tabState(tab) {
       canGoBack: false,
       canGoForward: false,
       isLoading: false,
-      crashed: !!tab.crashed
+      crashed: !!tab.crashed,
+      zoomPercent: 100
     };
   }
-
   return {
     id: tab.id,
     title: tab.crashed ? '탭 오류' : (wc.getTitle() || '새 탭'),
@@ -229,39 +292,43 @@ function tabState(tab) {
     canGoBack: !tab.crashed && wc.canGoBack(),
     canGoForward: !tab.crashed && wc.canGoForward(),
     isLoading: !tab.crashed && wc.isLoading(),
-    crashed: !!tab.crashed
+    crashed: !!tab.crashed,
+    zoomPercent: tabZoomPercent(wc)
   };
+}
+
+function updateWindowTitle(state) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const title = state && state.title && state.title !== '새 탭'
+    ? state.title + ' - ' + PRODUCT_NAME
+    : PRODUCT_NAME;
+  mainWindow.setTitle(title);
 }
 
 function sendTabs() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('browser:tabs', {
-    activeTabId,
-    tabs: tabs.map(tabState)
-  });
+  mainWindow.webContents.send('browser:tabs', { activeTabId, tabs: tabs.map(tabState) });
 }
 
 function sendBrowserState(tab) {
   if (!mainWindow || mainWindow.isDestroyed() || !tab || tab.id !== activeTabId) return;
-  mainWindow.webContents.send('browser:state', tabState(tab));
+  const state = tabState(tab);
+  updateWindowTitle(state);
+  mainWindow.webContents.send('browser:state', state);
+  notifyZoomState(safeWebContents(tab));
 }
 
 function downloadWithPrompt(contents, url, filename) {
   if (!url || !contents || contents.isDestroyed()) return;
-
   try {
     const savePath = dialog.showSaveDialogSync(mainWindow || undefined, {
       title: '다른 이름으로 저장',
       defaultPath: path.join(app.getPath('downloads'), suggestedFilename(url, filename))
     });
     if (!savePath || contents.isDestroyed()) return;
-
     contents.session.once('will-download', (_event, item) => {
-      try {
-        item.setSavePath(savePath);
-      } catch (error) {
-        writeLog('DOWNLOAD', 'Failed to set download path for ' + url, error);
-      }
+      try { item.setSavePath(savePath); }
+      catch (error) { writeLog('DOWNLOAD', 'Failed to set download path for ' + url, error); }
     });
     contents.downloadURL(url);
   } catch (error) {
@@ -281,15 +348,10 @@ function handleTabCrash(tab, killed) {
   tab.crashed = true;
   tab.lastUrl = wc ? (wc.getURL() || tab.lastUrl || '') : (tab.lastUrl || '');
   writeLog('RENDERER-CRASH', 'Tab ' + tab.id + ' renderer crashed. killed=' + String(!!killed) + ' url=' + tab.lastUrl);
-
   sendTabs();
   sendBrowserState(tab);
-
   if (tab.id === activeTabId && mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('browser:tab-crashed', {
-      id: tab.id,
-      url: tab.lastUrl
-    });
+    mainWindow.webContents.send('browser:tab-crashed', { id: tab.id, url: tab.lastUrl });
   }
 }
 
@@ -298,9 +360,9 @@ function installBrowserHandlers(tab) {
 
   contents.on('before-input-event', (event, input) => {
     try {
+      if (handleZoomShortcut(event, input, contents)) return;
       if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing) return;
       const key = String(input.key || '').toLowerCase();
-
       if (input.control && !input.shift && key === 'l') {
         event.preventDefault();
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:focus-address');
@@ -338,7 +400,9 @@ function installBrowserHandlers(tab) {
       }
       if (input.alt && key === 'home') {
         event.preventDefault();
-        if (!contents.isDestroyed()) contents.loadURL(browserConfig.startUrl).catch((error) => writeLog('NAVIGATION', 'Alt+Home failed', error));
+        if (!contents.isDestroyed()) {
+          contents.loadURL(browserConfig.startUrl).catch((error) => writeLog('NAVIGATION', 'Alt+Home failed', error));
+        }
       }
     } catch (error) {
       writeLog('INPUT-HANDLER', 'Browser shortcut handler failed for tab ' + tab.id, error);
@@ -365,7 +429,7 @@ function installBrowserHandlers(tab) {
         template.push({ label: '링크 다운로드...', click: () => downloadWithPrompt(contents, params.linkURL, params.suggestedFilename) });
         template.push({ label: '링크 주소 복사', click: () => clipboard.writeText(params.linkURL) });
       }
-      if (params.srcURL && params.srcURL !== params.linkURL) {
+      if (params.srcURL && params.srcURL !== params.linkURL && params.mediaType !== 'plugin' && !/\.swf(?:$|[?#])/i.test(params.srcURL)) {
         const label = params.mediaType === 'image' ? '이미지 다운로드...' : '미디어 다운로드...';
         template.push({ label, click: () => downloadWithPrompt(contents, params.srcURL, params.suggestedFilename) });
       }
@@ -408,7 +472,6 @@ function installBrowserHandlers(tab) {
 
 function createTab(url, makeActive) {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
-
   const tab = {
     id: nextTabId++,
     crashed: false,
@@ -417,11 +480,11 @@ function createTab(url, makeActive) {
       webPreferences: {
         nodeIntegration: false,
         plugins: true,
-        partition: BROWSER_PARTITION
+        partition: BROWSER_PARTITION,
+        preload: path.join(__dirname, 'page-preload.js')
       }
     })
   };
-
   tabs.push(tab);
   installBrowserHandlers(tab);
   tab.view.setBounds(browserBounds);
@@ -434,7 +497,6 @@ function createTab(url, makeActive) {
 function activateTab(id, focusPage) {
   const tab = getTab(id);
   if (!tab || !mainWindow || mainWindow.isDestroyed()) return;
-
   try {
     activeTabId = id;
     mainWindow.setBrowserView(tab.view);
@@ -454,19 +516,16 @@ function closeTab(id) {
   const tab = tabs[index];
   const wasActive = tab.id === activeTabId;
   tabs.splice(index, 1);
-
   try {
     const wc = safeWebContents(tab);
     if (wc) wc.destroy();
   } catch (error) {
     writeLog('TAB-CLOSE', 'Failed to destroy tab ' + id, error);
   }
-
   if (!tabs.length) {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
     return;
   }
-
   if (wasActive) {
     const nextIndex = Math.min(index, tabs.length - 1);
     activateTab(tabs[nextIndex].id, true);
@@ -485,6 +544,14 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       preload: path.join(__dirname, 'preload.js')
+    }
+  });
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    try {
+      handleZoomShortcut(event, input, activeContents());
+    } catch (error) {
+      writeLog('ZOOM-KEY', 'Chrome UI zoom shortcut handler failed', error);
     }
   });
 
@@ -520,12 +587,12 @@ ipcMain.on('browser:bounds', (_event, bounds) => {
   browserBounds = normalizeBounds(bounds);
   const tab = getActiveTab();
   if (tab) {
-    try {
-      tab.view.setBounds(browserBounds);
-    } catch (error) {
-      writeLog('BOUNDS', 'Failed to set BrowserView bounds', error);
-    }
+    try { tab.view.setBounds(browserBounds); }
+    catch (error) { writeLog('BOUNDS', 'Failed to set BrowserView bounds', error); }
   }
+});
+ipcMain.on('browser:page-mousedown', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:close-bookmark-menus');
 });
 ipcMain.on('browser:navigate', (_event, url) => {
   const wc = activeContents();
@@ -578,17 +645,11 @@ ipcMain.on('browser:bookmark-context', (_event, url) => {
   }
 });
 
-app.on('gpu-process-crashed', (_event, killed) => {
-  writeLog('GPU-CRASH', 'GPU process crashed. killed=' + String(!!killed));
-});
-
+app.on('gpu-process-crashed', (_event, killed) => writeLog('GPU-CRASH', 'GPU process crashed. killed=' + String(!!killed)));
 app.on('ready', async () => {
   writeLog('START', PRODUCT_NAME + ' starting. Electron=' + process.versions.electron + ' Chromium=' + process.versions.chrome);
-  try {
-    await initializeSessionCookiePersistence();
-  } catch (error) {
-    writeLog('SESSION-COOKIE', 'Failed to initialize session cookie persistence', error);
-  }
+  try { await initializeSessionCookiePersistence(); }
+  catch (error) { writeLog('SESSION-COOKIE', 'Failed to initialize session cookie persistence', error); }
   createWindow();
 });
 app.on('before-quit', () => writeLog('STOP', PRODUCT_NAME + ' exiting.'));

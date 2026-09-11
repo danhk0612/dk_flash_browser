@@ -56,6 +56,9 @@
     return editorClosed || contextClosed || dropdownClosed;
   }
 
+  // Browser chrome and bookmark panels live in this document, so normal DOM
+  // containment is enough here. BrowserView page clicks are handled separately
+  // by page-preload.js and forwarded through the main process.
   document.addEventListener('mousedown', function (event) {
     const dropdown = visible('.bookmark-dropdown');
     const context = visible('.bookmark-context-panel');
@@ -75,12 +78,10 @@
     if (closeTransientPanels()) event.preventDefault();
   }, true);
 
-  function handlePageFocus() {
+  function handlePageInteraction() {
     closeTransientPanels();
   }
 
-  // BrowserView focus is forwarded by bootstrap.js. Keep the old alias too so
-  // older packaged test copies and the current branch behave the same way.
-  window.dkBrowser.on('browser:close-bookmark-menus', handlePageFocus);
-  window.dkBrowser.on('browser:page-focus', handlePageFocus);
+  window.dkBrowser.on('browser:close-bookmark-menus', handlePageInteraction);
+  window.dkBrowser.on('browser:page-focus', handlePageInteraction);
 })();

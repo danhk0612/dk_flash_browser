@@ -15,7 +15,8 @@ The finished application must behave like a normal lightweight desktop browser w
 - Multiple tabs and new-tab workflow.
 - Legacy `target="_blank"` / `window.open()` handling.
 - Standard text edit/copy context actions where applicable.
-- Best-effort right-click download for links and image/media source URLs, including `.swf` links when a direct URL is exposed.
+- Best-effort right-click download for links and image/media source URLs.
+- Best-effort Flash download through the dedicated feature menu / `Ctrl+Shift+S` when direct SWF URLs are observable; Pepper Flash's native context menu is not extended.
 - No Chrome sign-in, Google synchronization, Chrome Web Store, or other Chrome service dependency.
 
 ## T01 — Flash PoC
@@ -100,23 +101,28 @@ T06 startup-default/Flash preflight runtime checks are carried forward into T07'
 
 ## T07 — Real legacy-system validation
 
-Status: next / active after T06 merge
+Status: complete and user-accepted; ready to merge
 
-Validation scope:
+Validated/accepted outcomes:
 
-- startup preflight with valid Flash DLL;
-- startup block/error with missing/corrupt/wrong-architecture Flash DLL;
-- default homepage and first-run default bookmark behavior;
-- Flash rendering and interaction on the actual legacy system;
-- login/session persistence;
-- audio if used by the solution;
-- required upload/download behavior if used;
-- right-click direct download for required SWF/image resources where the page exposes a downloadable URL;
-- new tabs/windows and long-running usage;
-- repeated open/switch/close tab workflows to watch for native BrowserView crash recurrence;
-- real 32-bit Windows runtime only if a physical/VM environment is available; otherwise record `NOT AVAILABLE`.
+- basic ordinary-page and Flash browsing behavior works in the user's target environment;
+- bookmark transient panels close correctly for browser-chrome and BrowserView page interactions;
+- bookmark edit/folder UI remains usable after the outside-click fix;
+- active page title is synchronized to the native window title;
+- `Ctrl + +`, `Ctrl + -`, and `Ctrl + 0` zoom controls work and the toolbar zoom indicator is synchronized to actual BrowserView zoom;
+- the feature menu provides zoom controls plus Flash/image download candidate lists;
+- Flash native right-click download injection was removed as unsupported; dedicated Flash download remains best-effort through the feature menu / `Ctrl+Shift+S`;
+- `Ctrl + mouse wheel` zoom was tested and explicitly dropped because the Electron 6 + BrowserView runtime does not provide a reliable input path in the target environment;
+- root bookmark drag/drop handlers no longer accumulate across repeated bookmark re-renders;
+- no recurrence of the previously reported full-process BrowserView crash was reported during the accepted T07 usage.
+
+Environment-dependent items that were not explicitly exercised are not claimed as validated. A real 32-bit Windows physical/VM runtime test remains `NOT AVAILABLE` unless performed later.
+
+See `docs/T07_VALIDATION.md` for the retained validation checklist and limitations.
 
 ## T08 — Final packaging
+
+Status: next after T07 merge
 
 - Remove unnecessary development artifacts.
 - Final product name/icon.

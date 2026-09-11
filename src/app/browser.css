@@ -177,6 +177,21 @@ button, input { font: inherit; }
   font-size: 14px;
 }
 
+.zoom-indicator {
+  flex: 0 0 auto;
+  min-width: 52px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #404040;
+  cursor: pointer;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.zoom-indicator:hover { border-color: #c4c4c4; background: #dddddd; }
+
 .bookmark-bar {
   display: flex;
   flex: 0 0 31px;

@@ -19,11 +19,13 @@
       <button id="forward-button" class="nav-button" type="button" title="앞으로" disabled>→</button>
       <button id="reload-button" class="nav-button" type="button" title="새로고침 (F5 / Ctrl+R)">↻</button>
       <button id="hard-reload-button" class="nav-button hard-reload" type="button" title="강제 새로고침 - 캐시 무시 (Ctrl+F5 / Ctrl+Shift+R)">↻!</button>
+      <button id="feature-menu-button" class="nav-button feature-menu-button" type="button" title="기능 메뉴: 배율 / Flash 다운로드 / 이미지 다운로드">⋮</button>
       <button id="home-button" class="nav-button" type="button" title="홈 (Alt+Home)">⌂</button>
       <div class="address-box">
         <img id="address-favicon" class="address-favicon" alt="" draggable="false">
         <input id="address-input" class="address-input" type="text" spellcheck="false" autocomplete="off" aria-label="주소">
       </div>
+      <button id="zoom-indicator" class="zoom-indicator" type="button" title="현재 배율 · 클릭하면 100%로 초기화 (Ctrl+0)">100%</button>
       <button id="bookmark-button" class="nav-button bookmark-toggle" type="button" title="북마크 추가 (Ctrl+D)">☆</button>
     </div>
     <div id="bookmark-bar" class="bookmark-bar" aria-label="북마크 바"></div>
@@ -31,6 +33,8 @@
   </div>
   <script src="ui-stability.js"></script>
   <script src="browser.js"></script>
+  <script src="zoom-ui.js"></script>
+  <script src="feature-menu.js"></script>
   <script src="bookmark-bar-polish.js"></script>
 </body>
 </html>
