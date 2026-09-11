@@ -47,36 +47,87 @@ function Assert-X86Pe([string]$Path, [string]$Label) {
     Write-Host "[OK] $Label is x86 (IMAGE_FILE_MACHINE_I386 / 0x014C)"
 }
 
+function Assert-Ico([string]$Path) {
+    Assert-Exists $Path 'DKFlashBrowser.ico'
+    $stream = [System.IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
+    try {
+        $reader = New-Object System.IO.BinaryReader($stream)
+        $reserved = $reader.ReadUInt16()
+        $type = $reader.ReadUInt16()
+        $count = $reader.ReadUInt16()
+        if ($reserved -ne 0 -or $type -ne 1 -or $count -lt 5) {
+            throw "Invalid application ICO header: reserved=$reserved type=$type images=$count"
+        }
+        Write-Host "[OK] application icon is a multi-size ICO ($count images)"
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
 Write-Host "Validating portable package: $PackageDir"
 Assert-Exists $PackageDir 'package directory'
 
 $BrowserExe = Join-Path $PackageDir 'DKFlashBrowser.exe'
 $FlashDll = Join-Path $PackageDir 'Flash\pepflashplayer.dll'
+$AppIcon = Join-Path $PackageDir 'DKFlashBrowser.ico'
 $Config = Join-Path $PackageDir 'config.ini'
 $UserData = Join-Path $PackageDir 'UserData'
 $AppDir = Join-Path $PackageDir 'resources\app'
 $MainJs = Join-Path $AppDir 'main.js'
+$BootstrapJs = Join-Path $AppDir 'bootstrap.js'
+$AppManifest = Join-Path $AppDir 'package.json'
+$VersionFile = Join-Path $PackageDir 'VERSION.txt'
+$Readme = Join-Path $PackageDir 'README.md'
 $License = Join-Path $PackageDir 'LICENSE-DKFlashBrowser.txt'
 $Notices = Join-Path $PackageDir 'THIRD_PARTY_NOTICES.md'
 
 Assert-X86Pe $BrowserExe 'DKFlashBrowser.exe'
 Assert-X86Pe $FlashDll 'Pepper Flash DLL'
+Assert-Ico $AppIcon
 Assert-Exists $Config 'config.ini'
 Assert-Exists $UserData 'portable UserData directory'
 Assert-Exists $MainJs 'packaged application main.js'
+Assert-Exists $BootstrapJs 'packaged application bootstrap.js'
+Assert-Exists $AppManifest 'packaged application manifest'
+Assert-Exists $VersionFile 'VERSION.txt'
+Assert-Exists $Readme 'README.md'
 Assert-Exists $License 'project license'
 Assert-Exists $Notices 'third-party notices'
 
-$mainText = Get-Content $MainJs -Raw
-if ($mainText -notmatch "app\.setPath\('userData',\s*userDataPath\)") {
-    throw 'Packaged main.js does not explicitly redirect Electron userData to the portable UserData path.'
+$manifest = Get-Content $AppManifest -Raw | ConvertFrom-Json
+$manifestVersion = [string]$manifest.version
+$packageVersion = (Get-Content $VersionFile -Raw).Trim()
+if (-not $manifestVersion -or $manifestVersion -ne $packageVersion) {
+    throw "Version mismatch: app=$manifestVersion package=$packageVersion"
 }
-Write-Host '[OK] packaged app redirects userData to the portable package root'
+Write-Host "[OK] package version metadata matches: $packageVersion"
 
-if ($mainText -notmatch 'persist:dk-flash-browser') {
-    throw 'Packaged main.js does not contain the expected persistent browser partition.'
+$versionInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($BrowserExe)
+if ([string]$versionInfo.ProductName -ne 'DK Flash Browser') {
+    throw "Executable ProductName resource mismatch: '$($versionInfo.ProductName)'"
+}
+if (-not ([string]$versionInfo.FileVersion).StartsWith($packageVersion)) {
+    throw "Executable FileVersion resource mismatch: exe=$($versionInfo.FileVersion) package=$packageVersion"
+}
+Write-Host "[OK] executable branding/version resources: $($versionInfo.ProductName) $($versionInfo.FileVersion)"
+
+$bootstrapText = Get-Content $BootstrapJs -Raw
+if ($bootstrapText -notmatch "app\.setPath\('userData',\s*userDataPath\)") {
+    throw 'Packaged bootstrap.js does not explicitly redirect Electron userData to the portable UserData path.'
+}
+Write-Host '[OK] packaged bootstrap redirects userData to the portable package root'
+
+if ($bootstrapText -notmatch 'persist:dk-flash-browser') {
+    throw 'Packaged bootstrap.js does not contain the expected persistent browser partition.'
 }
 Write-Host '[OK] persistent browser session partition is configured'
+
+$mainText = Get-Content $MainJs -Raw
+if ($mainText -notmatch 'DKFlashBrowser\.ico') {
+    throw 'Packaged main.js does not reference the packaged application icon.'
+}
+Write-Host '[OK] packaged browser window uses DKFlashBrowser.ico when present'
 
 $flashInfo = Get-Item $FlashDll
 if ($flashInfo.Length -le 0) {
@@ -104,4 +155,4 @@ if ($PrepareIsolationCopies) {
 
 Write-Host ''
 Write-Host 'Static portable validation PASSED.'
-Write-Host 'Runtime validation is still required on Windows: copied-folder launch, profile isolation, Flash, and x86 execution on target OS.'
+Write-Host 'Runtime validation is still required on Windows for the final 1.0.0 package.'

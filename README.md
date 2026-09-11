@@ -1,24 +1,49 @@
 # DK Flash Browser
 
-32-bit Windows legacy browser shell for internal systems that still require Adobe Flash (PPAPI).
+Portable 32-bit Windows browser shell for isolated legacy systems that still require Adobe Flash (PPAPI/Pepper Flash).
 
-## Project goal
+## Version
 
-- Windows x86 runtime, also runnable on x64 Windows through WoW64.
-- Electron 6.1.12 / Chromium 76 generation.
-- External Pepper Flash plug-in loading.
-- Configurable start/home URL.
-- Portable profile stored beside the application.
-- Lightweight standalone browser UI without Whale/Chrome service integration.
-- Tabs, navigation, bookmarks, normal/hard reload and best-effort direct resource download.
+Current release target: **1.0.0**
 
-## Current status
+Runtime baseline:
 
-T01 through T05 are complete and merged. T06 configuration behavior is implemented and has been functionally validated, but final merge is temporarily blocked by an intermittent full-process crash reported on both Flash content and ordinary external pages.
+- Electron 6.1.12
+- Chromium 76 generation
+- Windows x86 / 32-bit application
+- Pepper Flash 29.0.0.140 supplied locally by the user
 
-The current popup implementation routes `target="_blank"` / `window.open()` into browser tabs. The product requirement allows a future refinement where true window requests open as lightweight content-only windows, but no rewrite is required unless a real legacy workflow needs it.
+The application also runs on supported x64 Windows systems through WoW64.
 
-## Local development folder
+## Main features
+
+- Direct URL address bar
+- Back / forward
+- Normal reload and hard reload without cache
+- Configurable Home/start page
+- Multiple tabs
+- Active page title synchronized to the native window title
+- Portable local bookmark bar with folders, editing and drag/reorder
+- Local portable browser profile and session persistence
+- Best-effort image/media downloads
+- Best-effort Flash SWF download list through the feature menu / `Ctrl+Shift+S` when direct SWF URLs are observable
+- Page zoom with keyboard shortcuts and toolbar percentage display
+- Custom DK Flash Browser application icon for the executable, window and taskbar
+- No Chrome sign-in, Google Sync, Chrome Web Store or account system
+
+## Important limitations
+
+- Pepper Flash owns its native right-click menu. DK Flash Browser does **not** inject a Flash-download action into that menu.
+- `Ctrl + mouse wheel` zoom is not supported in the target Electron 6 + BrowserView environment. Use `Ctrl + +`, `Ctrl + -`, `Ctrl + 0`, or the toolbar feature menu.
+- Flash download is best-effort. SWFs loaded internally by Flash without an observable direct URL may not appear in the download list.
+- The current legacy popup implementation routes `target="_blank"` / `window.open()` into browser tabs.
+- A physical/VM 32-bit Windows runtime test is not claimed unless explicitly performed.
+
+## Security warning
+
+This project intentionally uses end-of-life browser and plug-in technology for isolated legacy systems. It is **not intended for general Internet browsing**.
+
+## Repository setup
 
 Recommended local path:
 
@@ -26,7 +51,7 @@ Recommended local path:
 D:\PortableApps\dk_flash_browser
 ```
 
-### First clone
+Clone:
 
 ```bat
 D:
@@ -35,7 +60,7 @@ git clone https://github.com/danhk0612/dk_flash_browser.git
 cd dk_flash_browser
 ```
 
-### Update main
+Update the main branch:
 
 ```bat
 D:
@@ -44,142 +69,175 @@ git switch main
 git pull --ff-only origin main
 ```
 
-### Test the current T06 branch
+## Required local Flash component
 
-First checkout:
+This repository does **not** distribute Adobe Flash Player binaries.
 
-```bat
-D:
-cd \PortableApps\dk_flash_browser
-git fetch origin
-git switch -c task/t06-config-finalization --track origin/task/t06-config-finalization
-```
-
-Later updates:
-
-```bat
-D:
-cd \PortableApps\dk_flash_browser
-git switch task/t06-config-finalization
-git pull --ff-only origin task/t06-config-finalization
-```
-
-## Local setup
-
-1. Place the locally supplied 32-bit PPAPI Flash DLL at:
-
-   ```text
-   D:\PortableApps\dk_flash_browser\Flash\pepflashplayer.dll
-   ```
-
-2. Create `config.ini` if it does not already exist:
-
-   ```powershell
-   Copy-Item .\config.example.ini .\config.ini
-   notepad .\config.ini
-   ```
-
-3. Set the legacy site URL:
-
-   ```ini
-   [Browser]
-   StartUrl=http://legacy-server/
-   ```
-
-4. Start the development browser:
-
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\scripts\run-dev.ps1
-   ```
-
-The first development run downloads the official Electron 6.1.12 Windows x86 runtime into `.runtime`. No Node.js or npm installation is required.
-
-## Build the local x86 portable package
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\package-win32.ps1
-```
-
-Output:
+Place the locally supplied 32-bit PPAPI Flash DLL at:
 
 ```text
-dist\DKFlashBrowser-win32-ia32\
-  DKFlashBrowser.exe
-  config.ini
-  Flash\pepflashplayer.dll
-  UserData\
-  Logs\
-  CrashDumps\
-  resources\app\
-  ... Electron runtime files
+Flash\pepflashplayer.dll
 ```
 
-The generated package is local build output and is ignored by Git.
+The expected release baseline is Pepper Flash `29.0.0.140` x86.
 
-## Browser controls
-
-- Address bar: `Ctrl+L`
-- Back / forward
-- Normal reload: `F5` / `Ctrl+R`
-- Hard reload ignoring cache: `Ctrl+F5` / `Ctrl+Shift+R`
-- Home: `Alt+Home`
-- Bookmark add/remove: `Ctrl+D`
-- New tab: `Ctrl+T`
-- Close active tab: `Ctrl+W`
-- Next/previous tab: `Ctrl+Tab` / `Ctrl+Shift+Tab`
-- Right-click direct download for links and image/media URLs when exposed by the page
-
-Bookmarks and browser data are local to the portable profile. No Chrome sign-in, synchronization, Web Store, or Google service is used.
+See `THIRD_PARTY_NOTICES.md` for licensing notes.
 
 ## Configuration
 
-The supported external configuration contract is intentionally minimal:
+Create `config.ini` from the example when needed:
+
+```powershell
+Copy-Item .\config.example.ini .\config.ini
+notepad .\config.ini
+```
+
+Default example:
 
 ```ini
 [Browser]
-StartUrl=http://legacy-server/
+StartUrl=https://html.duckduckgo.com/html
+
+[DefaultBookmarks]
+Bookmark1=DuckDuckGo|https://html.duckduckgo.com/html
+Bookmark2=Duck.ai|https://duck.ai/
 ```
 
-`StartUrl` controls startup, Home / Alt+Home, and manually created new tabs. Editing packaged `config.ini` requires only a restart, not a rebuild. See `docs\CONFIGURATION.md`.
+`StartUrl` controls startup, Home / `Alt+Home`, and manually created new tabs.
 
-## Portable validation
+Default bookmarks are seeded only when `UserData\bookmarks.json` does not exist. An existing empty bookmark file is treated as intentional user state.
 
-After packaging, run:
+See `docs\CONFIGURATION.md` for the full supported configuration contract.
+
+## Development run
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run-dev.ps1
+```
+
+The bootstrap script downloads the official Electron 6.1.12 Windows x86 runtime into `.runtime`. Node.js and npm are not required for normal development runs or packaging.
+
+## Build the portable Windows package
+
+Close all running DK Flash Browser processes first, then run:
+
+```powershell
+Get-Process DKFlashBrowser -ErrorAction SilentlyContinue | Stop-Process -Force
+powershell -ExecutionPolicy Bypass -File .\scripts\package-win32.ps1
+```
+
+For version 1.0.0, the build produces:
+
+```text
+dist\DKFlashBrowser-win32-ia32\
+dist\DKFlashBrowser-1.0.0-win32-ia32.zip
+```
+
+The packaging script also:
+
+- generates a 16/24/32/48/64/128/256 px `DKFlashBrowser.ico` from source drawing instructions in `scripts\generate-icon.ps1`;
+- downloads and caches Electron `rcedit` v2.0.0 x86 under `.runtime\tools` when needed;
+- embeds the icon and DK Flash Browser 1.0.0 product/version resources into `DKFlashBrowser.exe`;
+- copies the ICO beside the executable so the BrowserWindow can use the same icon explicitly.
+
+The portable directory contains the executable, custom icon, local configuration, Flash DLL, portable profile directory, application resources, README, license/notices, and `VERSION.txt`.
+
+`dist\` and `.runtime\` are ignored by Git.
+
+## Validate the portable package
+
+After packaging:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\validate-portable.ps1
 ```
 
-To prepare independent A/B copies:
+The validator checks:
+
+- `DKFlashBrowser.exe` is x86/PE32
+- Pepper Flash DLL is x86/PE32
+- the generated ICO is valid and contains multiple sizes
+- executable ProductName/FileVersion resources match DK Flash Browser 1.0.0
+- required portable files/directories exist
+- packaged application version matches `VERSION.txt`
+- portable user-data redirection is present
+- persistent browser partition is present
+- the packaged BrowserWindow references `DKFlashBrowser.ico`
+
+To prepare two independent copies for profile-isolation testing:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\validate-portable.ps1 -PrepareIsolationCopies
 ```
 
-Detailed procedure: `docs\PORTABLE_VALIDATION.md`.
+See `docs\PORTABLE_VALIDATION.md` and `docs\T07_VALIDATION.md` for the retained validation procedures.
+
+## Browser controls
+
+- Focus address bar: `Ctrl+L`
+- Back / forward: toolbar buttons
+- Reload: `F5` / `Ctrl+R`
+- Hard reload: `Ctrl+F5` / `Ctrl+Shift+R`
+- Home: `Alt+Home`
+- Add/remove bookmark: `Ctrl+D`
+- New tab: `Ctrl+T`
+- Close active tab: `Ctrl+W`
+- Next tab: `Ctrl+Tab`
+- Previous tab: `Ctrl+Shift+Tab`
+- Zoom in: `Ctrl++`
+- Zoom out: `Ctrl+-`
+- Reset zoom: `Ctrl+0`
+- Flash download candidate list: `Ctrl+Shift+S`
+- Feature menu: toolbar `⋮` button
+
+The address-bar zoom indicator reflects the active BrowserView's actual zoom factor and can be clicked to reset to 100%.
+
+## Portable data
+
+Browser data stays beside the application under:
+
+```text
+UserData\
+```
+
+Bookmarks are stored in:
+
+```text
+UserData\bookmarks.json
+```
+
+Session-cookie compatibility data is stored in the same portable profile so validated legacy login sessions can survive browser restart when required by the target system.
 
 ## Diagnostics
 
-Runtime diagnostics are written under:
+Runtime diagnostics:
 
 ```text
 Logs\browser.log
 ```
 
-Native Electron/Chromium crash dumps are written under:
+Native Electron/Chromium crash dumps:
 
 ```text
 CrashDumps\
 ```
 
-The browser now starts through an early diagnostic bootstrap that enables Electron Crash Reporter before renderer processes are created. Useful log tags include `CRASH-REPORTER`, `RENDERER-PROCESS-CRASHED`, `GPU-PROCESS-CRASHED`, `PROCESS-EXIT`, `MAIN-UNCAUGHT`, and `RENDERER-CRASH`.
+Useful log tags include:
 
-If an intermittent full-process exit occurs and the exact click sequence is unknown, preserve `Logs\browser.log` and the files under `CrashDumps\`; those are sufficient to distinguish renderer/GPU/main/native failures in many cases.
+- `CRASH-REPORTER`
+- `FLASH-CHECK`
+- `BROWSERVIEW-LIFECYCLE`
+- `RENDERER-PROCESS-CRASHED`
+- `GPU-PROCESS-CRASHED`
+- `PROCESS-EXIT`
+- `MAIN-UNCAUGHT`
+- `MAIN-REJECTION`
+- `ZOOM-KEY`
 
-## Important licensing note
+If an unexpected full-process exit occurs, preserve `Logs\browser.log` and the newest Crashpad dump before rebuilding or cleaning the package.
 
-This repository does **not** distribute Adobe Flash Player binaries. `pepflashplayer.dll` must be supplied locally by an authorized user. See `THIRD_PARTY_NOTICES.md`.
+## License
 
-## Security note
+Project source: MIT License. See `LICENSE`.
 
-This project intentionally uses end-of-life browser and plug-in technology for isolated legacy systems. It is not intended for general Internet browsing.
+Adobe Flash Player is not included in this repository and remains subject to its own licensing terms.

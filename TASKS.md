@@ -56,7 +56,7 @@ Status: complete, user-validated, and merged
 
 ## T06 — Configuration finalization
 
-Status: complete; user requested progression to T07
+Status: complete and merged
 
 - `[Browser] StartUrl=...` controls startup, Home / Alt+Home, and manually created new tabs.
 - Missing or empty `StartUrl` falls back to `https://html.duckduckgo.com/html` and is written into `config.ini`.
@@ -97,11 +97,9 @@ Diagnostic log tags remain available:
 - `PROCESS-EXIT`
 - existing `RENDERER-CRASH`, `GPU-CRASH`, `MAIN-UNCAUGHT`, `MAIN-REJECTION`
 
-T06 startup-default/Flash preflight runtime checks are carried forward into T07's real-system validation checklist rather than blocking progression.
-
 ## T07 — Real legacy-system validation
 
-Status: complete and user-accepted; ready to merge
+Status: complete, user-accepted, and merged as `31e8b461abd456fdf1e4f0ad888fe83c99f05b34`
 
 Validated/accepted outcomes:
 
@@ -122,10 +120,21 @@ See `docs/T07_VALIDATION.md` for the retained validation checklist and limitatio
 
 ## T08 — Final packaging
 
-Status: next after T07 merge
+Status: complete and user-accepted; ready to merge
 
-- Remove unnecessary development artifacts.
-- Final product name/icon.
-- Produce portable ZIP layout.
-- Final usage/build documentation.
-- Version 1.0.0.
+Completed outcomes:
+
+- application version set to `1.0.0`;
+- package script creates both `dist\DKFlashBrowser-win32-ia32\` and `dist\DKFlashBrowser-1.0.0-win32-ia32.zip`;
+- final package includes `VERSION.txt`, README, project license and third-party notices;
+- custom DK Flash Browser multi-size ICO is generated at build time and embedded into `DKFlashBrowser.exe`;
+- executable ProductName/FileVersion resources identify `DK Flash Browser 1.0.0`;
+- BrowserWindow/taskbar uses the packaged DK Flash Browser icon;
+- build-time Electron `rcedit` x86 tool is downloaded/cached under ignored `.runtime\tools`;
+- portable validator checks x86 PE architecture, Flash DLL, ICO structure, executable branding/version, version metadata, portable userData redirection, persistent browser partition, application resources, and icon reference;
+- final branded Windows package build completed successfully;
+- final validator result: `Static portable validation PASSED.`;
+- previously validated startup, Flash, tabs, bookmarks, zoom, feature-menu and stability workflows remain the accepted 1.0.0 runtime baseline;
+- accepted limitations are documented in README and `docs/RELEASE_1.0.0.md`.
+
+T08 can now be merged. Creating a Git tag/GitHub Release for `v1.0.0` is a separate explicit release action.

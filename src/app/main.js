@@ -15,6 +15,7 @@ function getRootDir() {
 
 const rootDir = getRootDir();
 const flashPath = path.join(rootDir, 'Flash', 'pepflashplayer.dll');
+const appIconPath = path.join(rootDir, 'DKFlashBrowser.ico');
 const configPath = path.join(rootDir, 'config.ini');
 const userDataPath = path.join(rootDir, 'UserData');
 const sessionCookieBackupPath = path.join(userDataPath, 'session-cookies.json');
@@ -138,364 +139,279 @@ async function initializeSessionCookiePersistence() {
       const details = sessionCookieDetails(cookie);
       if (!details) continue;
       await browserSession.cookies.set(details);
-      restoredCount++;
+      restoredCount += 1;
     } catch (error) {
-      writeLog('SESSION-COOKIE', 'Failed to restore session cookie ' + String(cookie.name || ''), error);
+      writeLog('SESSION-COOKIE', 'Failed to restore session cookie ' + (cookie.name || ''), error);
     }
   }
 
   restoring = false;
-  if (restoredCount) writeLog('SESSION-COOKIE', 'Restored ' + restoredCount + ' session cookies from portable profile.');
+  writeLog('SESSION-COOKIE', 'Restored session cookies: ' + restoredCount);
 
-  browserSession.cookies.on('changed', (_event, cookie, _cause, removed) => {
-    if (restoring || !cookie || !cookie.name || !cookie.domain) return;
+  browserSession.cookies.on('changed', (_event, cookie, cause, removed) => {
+    if (restoring || !cookie || !cookie.session) return;
     const key = sessionCookieKey(cookie);
-    if (removed || !cookie.session) {
-      if (savedCookies.delete(key)) saveSessionCookieBackup(savedCookies);
-      return;
-    }
-    savedCookies.set(key, {
-      name: cookie.name,
-      value: cookie.value || '',
-      domain: cookie.domain,
-      hostOnly: !!cookie.hostOnly,
-      path: cookie.path || '/',
-      secure: !!cookie.secure,
-      httpOnly: !!cookie.httpOnly,
-      sameSite: cookie.sameSite || undefined
-    });
+    if (removed || cause === 'expired' || cause === 'evicted' || cause === 'expired-overwrite') savedCookies.delete(key);
+    else savedCookies.set(key, cookie);
     saveSessionCookieBackup(savedCookies);
   });
-
-  try { await browserSession.cookies.flushStore(); }
-  catch (error) { writeLog('SESSION-COOKIE', 'Failed to flush persistent cookie store', error); }
 }
 
-app.commandLine.appendSwitch('ppapi-flash-path', flashPath);
-app.commandLine.appendSwitch('ppapi-flash-version', FLASH_VERSION);
-app.commandLine.appendSwitch('allow-outdated-plugins');
-app.commandLine.appendSwitch('disable-component-update');
-app.commandLine.appendSwitch('disable-background-networking');
-app.setPath('userData', userDataPath);
-app.setName(PRODUCT_NAME);
+function parseAddressInput(value) {
+  const input = String(value || '').trim();
+  if (!input) return 'about:blank';
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(input)) return input;
+  return 'http://' + input;
+}
+
+function isDownloadableUrl(value) {
+  return /^(?:https?|file):/i.test(String(value || ''));
+}
+
+function buildEditMenu(params) {
+  const template = [];
+  if (params.editFlags) {
+    if (params.editFlags.canUndo) template.push({ role: 'undo', label: '실행 취소' });
+    if (params.editFlags.canRedo) template.push({ role: 'redo', label: '다시 실행' });
+    if (template.length) template.push({ type: 'separator' });
+    if (params.editFlags.canCut) template.push({ role: 'cut', label: '잘라내기' });
+    if (params.editFlags.canCopy) template.push({ role: 'copy', label: '복사' });
+    if (params.editFlags.canPaste) template.push({ role: 'paste', label: '붙여넣기' });
+    if (params.editFlags.canSelectAll) template.push({ role: 'selectAll', label: '모두 선택' });
+  }
+  return template;
+}
 
 let mainWindow = null;
-let browserConfig = null;
+let browserConfig = { startUrl: 'about:blank' };
 let browserBounds = { x: 0, y: 0, width: 1, height: 1 };
-let tabs = [];
-let activeTabId = null;
 let nextTabId = 1;
-
-function getTab(id) {
-  return tabs.find((tab) => tab.id === id) || null;
-}
+let activeTabId = null;
+let tabs = [];
 
 function getActiveTab() {
-  return getTab(activeTabId);
+  return tabs.find((tab) => tab.id === activeTabId) || null;
 }
 
-function actualZoomFactor(wc) {
-  if (!wc || wc.isDestroyed()) return 1;
-  try {
-    const factor = Number(wc.getZoomFactor());
-    return Number.isFinite(factor) && factor > 0 ? factor : 1;
-  } catch (_error) {
-    return 1;
-  }
-}
-
-function tabZoomPercent(wc) {
-  return Math.round(actualZoomFactor(wc) * 100);
-}
-
-function notifyZoomState(wc, factorOverride) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  const factor = Number(factorOverride) > 0 ? Number(factorOverride) : actualZoomFactor(wc);
-  mainWindow.webContents.send('browser:zoom-state', {
-    zoomFactor: factor,
-    zoomPercent: Math.round(factor * 100)
-  });
-}
-
-function nearestZoomIndex(value) {
-  let best = 0;
-  let distance = Infinity;
-  ZOOM_LEVELS.forEach((level, index) => {
-    const nextDistance = Math.abs(level - value);
-    if (nextDistance < distance) {
-      best = index;
-      distance = nextDistance;
-    }
-  });
-  return best;
-}
-
-function setContentsZoom(wc, factor) {
-  if (!wc || wc.isDestroyed()) return;
-  const clamped = Math.max(ZOOM_LEVELS[0], Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], Number(factor) || 1));
-  try {
-    wc.setZoomFactor(clamped);
-    notifyZoomState(wc, clamped);
-    setTimeout(() => {
-      if (wc && !wc.isDestroyed()) notifyZoomState(wc);
-    }, 100);
-  } catch (error) {
-    writeLog('ZOOM', 'Failed to set zoom factor', error);
-  }
-}
-
-function changeContentsZoom(wc, direction) {
-  if (!wc || wc.isDestroyed()) return;
-  let index = nearestZoomIndex(actualZoomFactor(wc));
-  index += Number(direction) > 0 ? 1 : -1;
-  index = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index));
-  setContentsZoom(wc, ZOOM_LEVELS[index]);
-}
-
-function handleZoomShortcut(event, input, wc) {
-  if (!input || !input.control || input.alt) return false;
-  const type = String(input.type || '').toLowerCase();
-  if (type.indexOf('keydown') < 0) return false;
-
-  const key = String(input.key || '').toLowerCase();
-  const code = String(input.code || '').toLowerCase();
-  const zoomIn = key === '+' || key === '=' || key === 'add' || code === 'equal' || code === 'numpadadd';
-  const zoomOut = key === '-' || key === 'subtract' || code === 'minus' || code === 'numpadsubtract';
-  const zoomReset = key === '0' || code === 'digit0' || code === 'numpad0';
-  if (!zoomIn && !zoomOut && !zoomReset) return false;
-
-  if (event && typeof event.preventDefault === 'function') event.preventDefault();
-  writeLog('ZOOM-KEY', 'key=' + key + ' code=' + code + ' shift=' + String(!!input.shift));
-  if (zoomReset) setContentsZoom(wc, 1);
-  else changeContentsZoom(wc, zoomIn ? 1 : -1);
-  return true;
-}
-
-function tabState(tab) {
-  const wc = safeWebContents(tab);
-  if (!wc) {
-    return {
-      id: tab.id,
-      title: tab.crashed ? '탭 오류' : '새 탭',
-      url: tab.lastUrl || '',
-      canGoBack: false,
-      canGoForward: false,
-      isLoading: false,
-      crashed: !!tab.crashed,
-      zoomPercent: 100
-    };
-  }
+function tabSummary(tab) {
+  const contents = safeWebContents(tab);
   return {
     id: tab.id,
-    title: tab.crashed ? '탭 오류' : (wc.getTitle() || '새 탭'),
-    url: wc.getURL() || tab.lastUrl || '',
-    canGoBack: !tab.crashed && wc.canGoBack(),
-    canGoForward: !tab.crashed && wc.canGoForward(),
-    isLoading: !tab.crashed && wc.isLoading(),
-    crashed: !!tab.crashed,
-    zoomPercent: tabZoomPercent(wc)
+    title: tab.title || (contents ? contents.getTitle() : '') || '새 탭',
+    url: tab.lastUrl || (contents ? contents.getURL() : '') || 'about:blank'
   };
-}
-
-function updateWindowTitle(state) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  const title = state && state.title && state.title !== '새 탭'
-    ? state.title + ' - ' + PRODUCT_NAME
-    : PRODUCT_NAME;
-  mainWindow.setTitle(title);
 }
 
 function sendTabs() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('browser:tabs', { activeTabId, tabs: tabs.map(tabState) });
+  mainWindow.webContents.send('browser:tabs', {
+    activeTabId: activeTabId,
+    tabs: tabs.map(tabSummary)
+  });
+}
+
+function updateWindowTitle(tab) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const title = tab && tab.title ? String(tab.title).trim() : '';
+  mainWindow.setTitle(title ? title + ' - ' + PRODUCT_NAME : PRODUCT_NAME);
 }
 
 function sendBrowserState(tab) {
-  if (!mainWindow || mainWindow.isDestroyed() || !tab || tab.id !== activeTabId) return;
-  const state = tabState(tab);
-  updateWindowTitle(state);
-  mainWindow.webContents.send('browser:state', state);
-  notifyZoomState(safeWebContents(tab));
-}
-
-function downloadWithPrompt(contents, url, filename) {
-  if (!url || !contents || contents.isDestroyed()) return;
-  try {
-    const savePath = dialog.showSaveDialogSync(mainWindow || undefined, {
-      title: '다른 이름으로 저장',
-      defaultPath: path.join(app.getPath('downloads'), suggestedFilename(url, filename))
-    });
-    if (!savePath || contents.isDestroyed()) return;
-    contents.session.once('will-download', (_event, item) => {
-      try { item.setSavePath(savePath); }
-      catch (error) { writeLog('DOWNLOAD', 'Failed to set download path for ' + url, error); }
-    });
-    contents.downloadURL(url);
-  } catch (error) {
-    writeLog('DOWNLOAD', 'Failed to start download for ' + url, error);
-  }
+  if (!mainWindow || mainWindow.isDestroyed() || !tab) return;
+  const contents = safeWebContents(tab);
+  if (!contents) return;
+  const payload = {
+    id: tab.id,
+    url: contents.getURL() || tab.lastUrl || '',
+    title: contents.getTitle() || tab.title || '',
+    canGoBack: contents.canGoBack(),
+    canGoForward: contents.canGoForward(),
+    isLoading: contents.isLoading()
+  };
+  tab.lastUrl = payload.url;
+  tab.title = payload.title;
+  updateWindowTitle(tab);
+  mainWindow.webContents.send('browser:state', payload);
 }
 
 function cycleTab(direction) {
   if (tabs.length < 2) return;
-  const index = tabs.findIndex((tab) => tab.id === activeTabId);
-  const next = (index + direction + tabs.length) % tabs.length;
-  activateTab(tabs[next].id, true);
+  const currentIndex = tabs.findIndex((tab) => tab.id === activeTabId);
+  if (currentIndex < 0) return;
+  const nextIndex = (currentIndex + direction + tabs.length) % tabs.length;
+  activateTab(tabs[nextIndex].id, true);
 }
 
-function handleTabCrash(tab, killed) {
-  const wc = safeWebContents(tab);
-  tab.crashed = true;
-  tab.lastUrl = wc ? (wc.getURL() || tab.lastUrl || '') : (tab.lastUrl || '');
-  writeLog('RENDERER-CRASH', 'Tab ' + tab.id + ' renderer crashed. killed=' + String(!!killed) + ' url=' + tab.lastUrl);
-  sendTabs();
-  sendBrowserState(tab);
-  if (tab.id === activeTabId && mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('browser:tab-crashed', { id: tab.id, url: tab.lastUrl });
+function normalizeInputCode(input) {
+  return String((input && (input.code || input.key)) || '').toLowerCase();
+}
+
+function handleZoomShortcut(event, input, contents) {
+  if (!input || !input.control || input.type !== 'keyDown' || !contents || contents.isDestroyed()) return false;
+  const key = String(input.key || '').toLowerCase();
+  const code = normalizeInputCode(input);
+  let direction = 0;
+  let reset = false;
+
+  if (key === '+' || key === '=' || code === 'equal' || code === 'numpadadd') direction = 1;
+  else if (key === '-' || code === 'minus' || code === 'numpadsubtract') direction = -1;
+  else if (key === '0' || code === 'digit0' || code === 'numpad0') reset = true;
+  else return false;
+
+  event.preventDefault();
+  writeLog('ZOOM-KEY', 'key=' + key + ' code=' + code + ' shift=' + String(!!input.shift));
+  if (reset) contents.setZoomFactor(1);
+  else {
+    const current = Number(contents.getZoomFactor()) || 1;
+    let index = 0;
+    let distance = Infinity;
+    ZOOM_LEVELS.forEach((factor, factorIndex) => {
+      const nextDistance = Math.abs(factor - current);
+      if (nextDistance < distance) {
+        distance = nextDistance;
+        index = factorIndex;
+      }
+    });
+    index += direction;
+    index = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index));
+    contents.setZoomFactor(ZOOM_LEVELS[index]);
+  }
+
+  try {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const zoomFactor = Number(contents.getZoomFactor()) || 1;
+      mainWindow.webContents.send('browser:zoom-state', {
+        zoomFactor: zoomFactor,
+        zoomPercent: Math.round(zoomFactor * 100)
+      });
+    }
+  } catch (_error) {}
+  return true;
+}
+
+function installContextMenu(tab) {
+  const contents = safeWebContents(tab);
+  if (!contents) return;
+  contents.on('context-menu', (_event, params) => {
+    try {
+      const template = buildEditMenu(params);
+      const linkUrl = String(params.linkURL || '');
+      const srcUrl = String(params.srcURL || '');
+      if (linkUrl) {
+        if (template.length) template.push({ type: 'separator' });
+        template.push({ label: '새 탭에서 링크 열기', click: () => createTab(linkUrl, true) });
+        template.push({ label: '링크 주소 복사', click: () => clipboard.writeText(linkUrl) });
+        if (isDownloadableUrl(linkUrl)) {
+          template.push({ label: '링크 저장...', click: () => downloadUrl(contents, linkUrl) });
+        }
+      }
+      if (srcUrl && isDownloadableUrl(srcUrl)) {
+        if (template.length) template.push({ type: 'separator' });
+        template.push({ label: '이미지/미디어 저장...', click: () => downloadUrl(contents, srcUrl) });
+      }
+      if (!template.length) template.push({ label: '새로고침', click: () => contents.reload() });
+      Menu.buildFromTemplate(template).popup({ window: mainWindow });
+    } catch (error) {
+      writeLog('CONTEXT-MENU', 'Failed to show context menu', error);
+    }
+  });
+}
+
+function downloadUrl(contents, url, fallbackName) {
+  if (!contents || contents.isDestroyed() || !url) return;
+  try {
+    const savePath = dialog.showSaveDialogSync(mainWindow || undefined, {
+      title: '파일 저장',
+      defaultPath: path.join(app.getPath('downloads'), suggestedFilename(url, fallbackName))
+    });
+    if (!savePath || contents.isDestroyed()) return;
+    contents.session.once('will-download', (_event, item) => {
+      try { item.setSavePath(savePath); }
+      catch (error) { writeLog('DOWNLOAD', 'Failed to set save path', error); }
+    });
+    contents.downloadURL(url);
+  } catch (error) {
+    writeLog('DOWNLOAD', 'Failed to download URL ' + url, error);
   }
 }
 
-function installBrowserHandlers(tab) {
-  const contents = tab.view.webContents;
+function installTabEvents(tab) {
+  const contents = safeWebContents(tab);
+  if (!contents) return;
 
   contents.on('before-input-event', (event, input) => {
-    try {
-      if (handleZoomShortcut(event, input, contents)) return;
-      if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing) return;
-      const key = String(input.key || '').toLowerCase();
-      if (input.control && !input.shift && key === 'l') {
-        event.preventDefault();
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:focus-address');
-        return;
-      }
-      if (input.control && !input.shift && key === 'd') {
-        event.preventDefault();
-        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:toggle-bookmark');
-        return;
-      }
-      if (input.control && !input.shift && key === 't') {
-        event.preventDefault();
-        createTab(browserConfig.startUrl, true);
-        return;
-      }
-      if (input.control && !input.shift && key === 'w') {
-        event.preventDefault();
-        closeTab(tab.id);
-        return;
-      }
-      if (input.control && key === 'tab') {
-        event.preventDefault();
-        cycleTab(input.shift ? -1 : 1);
-        return;
-      }
-      if ((input.control && input.shift && key === 'r') || (input.control && key === 'f5')) {
-        event.preventDefault();
-        if (!contents.isDestroyed()) contents.reloadIgnoringCache();
-        return;
-      }
-      if ((input.control && !input.shift && key === 'r') || key === 'f5') {
-        event.preventDefault();
-        if (!contents.isDestroyed()) contents.reload();
-        return;
-      }
-      if (input.alt && key === 'home') {
-        event.preventDefault();
-        if (!contents.isDestroyed()) {
-          contents.loadURL(browserConfig.startUrl).catch((error) => writeLog('NAVIGATION', 'Alt+Home failed', error));
-        }
-      }
-    } catch (error) {
-      writeLog('INPUT-HANDLER', 'Browser shortcut handler failed for tab ' + tab.id, error);
+    try { handleZoomShortcut(event, input, contents); }
+    catch (error) { writeLog('ZOOM-KEY', 'Page zoom shortcut handler failed', error); }
+  });
+
+  contents.on('focus', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('browser:page-focus');
+      mainWindow.webContents.send('browser:close-bookmark-menus');
     }
   });
 
-  contents.on('new-window', (event, url, frameName, disposition) => {
-    try {
-      event.preventDefault();
-      const targetUrl = url || 'about:blank';
-      writeLog('NEW-WINDOW', 'Tab ' + tab.id + ' requested ' + targetUrl + ' disposition=' + String(disposition || '') + ' frame=' + String(frameName || ''));
-      createTab(targetUrl, true);
-    } catch (error) {
-      writeLog('NEW-WINDOW', 'Failed to route popup/new-window request for tab ' + tab.id, error);
+  contents.on('did-start-loading', () => { if (tab.id === activeTabId) sendBrowserState(tab); });
+  contents.on('did-stop-loading', () => { if (tab.id === activeTabId) sendBrowserState(tab); });
+  contents.on('did-navigate', (_event, url) => {
+    tab.lastUrl = url || tab.lastUrl;
+    if (tab.id === activeTabId) sendBrowserState(tab);
+  });
+  contents.on('did-navigate-in-page', (_event, url) => {
+    tab.lastUrl = url || tab.lastUrl;
+    if (tab.id === activeTabId) sendBrowserState(tab);
+  });
+  contents.on('page-title-updated', (_event, title) => {
+    tab.title = title || tab.title;
+    sendTabs();
+    if (tab.id === activeTabId) sendBrowserState(tab);
+  });
+  contents.on('page-favicon-updated', (_event, favicons) => {
+    if (mainWindow && !mainWindow.isDestroyed() && Array.isArray(favicons) && favicons.length) {
+      mainWindow.webContents.send('browser:favicon', { url: contents.getURL() || tab.lastUrl || '', favicon: favicons[0] || '' });
     }
   });
-
-  contents.on('context-menu', (_event, params) => {
-    try {
-      if (contents.isDestroyed()) return;
-      const template = [];
-      if (params.linkURL) {
-        template.push({ label: '새 탭에서 링크 열기', click: () => createTab(params.linkURL, true) });
-        template.push({ label: '링크 다운로드...', click: () => downloadWithPrompt(contents, params.linkURL, params.suggestedFilename) });
-        template.push({ label: '링크 주소 복사', click: () => clipboard.writeText(params.linkURL) });
-      }
-      if (params.srcURL && params.srcURL !== params.linkURL && params.mediaType !== 'plugin' && !/\.swf(?:$|[?#])/i.test(params.srcURL)) {
-        const label = params.mediaType === 'image' ? '이미지 다운로드...' : '미디어 다운로드...';
-        template.push({ label, click: () => downloadWithPrompt(contents, params.srcURL, params.suggestedFilename) });
-      }
-      if (template.length) template.push({ type: 'separator' });
-      if (params.isEditable) {
-        template.push({ role: 'cut', label: '잘라내기' });
-        template.push({ role: 'copy', label: '복사' });
-        template.push({ role: 'paste', label: '붙여넣기' });
-        template.push({ role: 'selectall', label: '모두 선택' });
-      } else if (params.selectionText) {
-        template.push({ role: 'copy', label: '복사' });
-      }
-      if (template.length && mainWindow && !mainWindow.isDestroyed()) {
-        Menu.buildFromTemplate(template).popup({ window: mainWindow });
-      }
-    } catch (error) {
-      writeLog('CONTEXT-MENU', 'Context menu failed for tab ' + tab.id, error);
-    }
+  contents.on('zoom-changed', () => {
+    if (tab.id !== activeTabId || !mainWindow || mainWindow.isDestroyed()) return;
+    const factor = Number(contents.getZoomFactor()) || 1;
+    mainWindow.webContents.send('browser:zoom-state', { zoomFactor: factor, zoomPercent: Math.round(factor * 100) });
   });
-
-  contents.on('crashed', (_event, killed) => handleTabCrash(tab, killed));
-  contents.on('unresponsive', () => writeLog('RENDERER-UNRESPONSIVE', 'Tab ' + tab.id + ' became unresponsive. url=' + (contents.getURL() || '')));
-  contents.on('responsive', () => writeLog('RENDERER-RESPONSIVE', 'Tab ' + tab.id + ' became responsive again.'));
-
-  ['did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading', 'page-title-updated', 'did-fail-load'].forEach((name) => {
-    contents.on(name, () => {
-      try {
-        if (!contents.isDestroyed()) {
-          tab.crashed = false;
-          tab.lastUrl = contents.getURL() || tab.lastUrl || '';
-        }
-        sendBrowserState(tab);
-        sendTabs();
-      } catch (error) {
-        writeLog('STATE', 'State update failed after ' + name + ' for tab ' + tab.id, error);
-      }
-    });
+  contents.on('new-window', (event, url) => {
+    event.preventDefault();
+    createTab(url || browserConfig.startUrl, true);
   });
+  contents.on('did-fail-load', (_event, code, description, validatedUrl, isMainFrame) => {
+    if (isMainFrame === false || code === -3) return;
+    writeLog('NAVIGATION', 'Load failed code=' + code + ' url=' + validatedUrl + ' description=' + description);
+  });
+  contents.on('crashed', (_event, killed) => writeLog('RENDERER-CRASH', 'Tab renderer crashed. tab=' + tab.id + ' killed=' + String(!!killed)));
+  installContextMenu(tab);
 }
 
 function createTab(url, makeActive) {
-  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  const view = new BrowserView({
+    webPreferences: {
+      nodeIntegration: false,
+      plugins: true,
+      partition: BROWSER_PARTITION
+    }
+  });
   const tab = {
     id: nextTabId++,
-    crashed: false,
-    lastUrl: url || browserConfig.startUrl,
-    view: new BrowserView({
-      webPreferences: {
-        nodeIntegration: false,
-        plugins: true,
-        partition: BROWSER_PARTITION,
-        preload: path.join(__dirname, 'page-preload.js')
-      }
-    })
+    view: view,
+    title: '새 탭',
+    lastUrl: parseAddressInput(url || browserConfig.startUrl)
   };
   tabs.push(tab);
-  installBrowserHandlers(tab);
-  tab.view.setBounds(browserBounds);
-  tab.view.webContents.loadURL(tab.lastUrl).catch((error) => writeLog('NAVIGATION', 'Initial tab load failed: ' + tab.lastUrl, error));
-  if (makeActive || activeTabId === null) activateTab(tab.id, false);
+  installTabEvents(tab);
+  view.webContents.loadURL(tab.lastUrl).catch((error) => writeLog('NAVIGATION', 'Initial tab load failed: ' + tab.lastUrl, error));
   sendTabs();
+  if (makeActive !== false) activateTab(tab.id, true);
   return tab;
 }
 
 function activateTab(id, focusPage) {
-  const tab = getTab(id);
+  const tab = tabs.find((item) => item.id === id);
   if (!tab || !mainWindow || mainWindow.isDestroyed()) return;
   try {
     activeTabId = id;
@@ -540,6 +456,7 @@ function createWindow() {
     width: 1280,
     height: 800,
     title: PRODUCT_NAME,
+    icon: fs.existsSync(appIconPath) ? appIconPath : undefined,
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
