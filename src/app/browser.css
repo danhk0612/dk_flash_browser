@@ -25,6 +25,7 @@ button, input { font: inherit; }
   align-items: end;
   min-height: 34px;
   padding: 3px 6px 0;
+  overflow: hidden;
   border-bottom: 1px solid #cfcfcf;
   background: #dedede;
 }
@@ -32,17 +33,20 @@ button, input { font: inherit; }
 .tab-list {
   display: flex;
   flex: 1 1 auto;
+  align-items: end;
   min-width: 0;
   height: 31px;
   overflow-x: auto;
   overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: thin;
 }
 
 .tab-item {
   display: flex;
-  flex: 0 1 220px;
+  flex: 0 0 180px;
   align-items: center;
-  min-width: 110px;
+  min-width: 120px;
   max-width: 220px;
   height: 31px;
   margin-right: 2px;
@@ -80,7 +84,7 @@ button, input { font: inherit; }
   flex: 0 0 32px;
   width: 32px;
   height: 28px;
-  margin: 0 0 3px 3px;
+  margin: 0 6px 3px 1px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: 4px;
