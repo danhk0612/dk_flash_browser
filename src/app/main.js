@@ -7,7 +7,6 @@ const { app, BrowserWindow, BrowserView, Menu, dialog, clipboard, ipcMain, sessi
 const FLASH_VERSION = '29.0.0.140';
 const PRODUCT_NAME = 'DK Flash Browser';
 const BROWSER_PARTITION = 'persist:dk-flash-browser';
-const ZOOM_LEVELS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 
 function getRootDir() {
   return process.defaultApp ? path.resolve(__dirname, '..', '..') : path.dirname(process.execPath);
@@ -27,23 +26,15 @@ function writeLog(type, message, error) {
     const details = error && error.stack ? error.stack : (error ? String(error) : '');
     const line = '[' + new Date().toISOString() + '] [' + type + '] ' + message + (details ? '\n' + details : '') + '\n';
     fs.appendFileSync(logPath, line, 'utf8');
-  } catch (_error) {
-    // Logging must never crash the browser.
-  }
+  } catch (_error) {}
 }
 
-process.on('uncaughtException', (error) => {
-  writeLog('MAIN-UNCAUGHT', 'Uncaught exception in main process', error);
-});
-
-process.on('unhandledRejection', (reason) => {
-  writeLog('MAIN-REJECTION', 'Unhandled promise rejection in main process', reason);
-});
+process.on('uncaughtException', (error) => writeLog('MAIN-UNCAUGHT', 'Uncaught exception in main process', error));
+process.on('unhandledRejection', (reason) => writeLog('MAIN-REJECTION', 'Unhandled promise rejection in main process', reason));
 
 function readBrowserConfig(filePath) {
   const config = { startUrl: 'about:blank' };
   if (!fs.existsSync(filePath)) return config;
-
   const lines = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
   let section = '';
   for (const rawLine of lines) {
@@ -94,7 +85,6 @@ function sessionCookieKey(cookie) {
 function sessionCookieDetails(cookie) {
   const domain = String(cookie.domain || '').replace(/^\./, '');
   if (!domain || !cookie.name) return null;
-
   const details = {
     url: (cookie.secure ? 'https://' : 'http://') + domain + '/',
     name: cookie.name,
@@ -103,7 +93,6 @@ function sessionCookieDetails(cookie) {
     secure: !!cookie.secure,
     httpOnly: !!cookie.httpOnly
   };
-
   if (!cookie.hostOnly && cookie.domain) details.domain = cookie.domain;
   if (cookie.sameSite) details.sameSite = cookie.sameSite;
   return details;
@@ -159,13 +148,11 @@ async function initializeSessionCookiePersistence() {
 
   browserSession.cookies.on('changed', (_event, cookie, _cause, removed) => {
     if (restoring || !cookie || !cookie.name || !cookie.domain) return;
-
     const key = sessionCookieKey(cookie);
     if (removed || !cookie.session) {
       if (savedCookies.delete(key)) saveSessionCookieBackup(savedCookies);
       return;
     }
-
     savedCookies.set(key, {
       name: cookie.name,
       value: cookie.value || '',
@@ -179,11 +166,8 @@ async function initializeSessionCookiePersistence() {
     saveSessionCookieBackup(savedCookies);
   });
 
-  try {
-    await browserSession.cookies.flushStore();
-  } catch (error) {
-    writeLog('SESSION-COOKIE', 'Failed to flush persistent cookie store', error);
-  }
+  try { await browserSession.cookies.flushStore(); }
+  catch (error) { writeLog('SESSION-COOKIE', 'Failed to flush persistent cookie store', error); }
 }
 
 app.commandLine.appendSwitch('ppapi-flash-path', flashPath);
@@ -205,17 +189,22 @@ function getTab(id) {
   return tabs.find((tab) => tab.id === id) || null;
 }
 
-function getTabByWebContents(contents) {
-  return tabs.find((tab) => safeWebContents(tab) === contents) || null;
-}
-
 function getActiveTab() {
   return getTab(activeTabId);
 }
 
+function tabZoomPercent(wc) {
+  if (!wc || wc.isDestroyed()) return 100;
+  try {
+    const factor = Number(wc.getZoomFactor());
+    return Math.round((Number.isFinite(factor) && factor > 0 ? factor : 1) * 100);
+  } catch (_error) {
+    return 100;
+  }
+}
+
 function tabState(tab) {
   const wc = safeWebContents(tab);
-  const zoomPercent = Math.round((Number(tab.zoomFactor) || 1) * 100);
   if (!wc) {
     return {
       id: tab.id,
@@ -225,10 +214,9 @@ function tabState(tab) {
       canGoForward: false,
       isLoading: false,
       crashed: !!tab.crashed,
-      zoomPercent: zoomPercent
+      zoomPercent: 100
     };
   }
-
   return {
     id: tab.id,
     title: tab.crashed ? '탭 오류' : (wc.getTitle() || '새 탭'),
@@ -237,22 +225,21 @@ function tabState(tab) {
     canGoForward: !tab.crashed && wc.canGoForward(),
     isLoading: !tab.crashed && wc.isLoading(),
     crashed: !!tab.crashed,
-    zoomPercent: zoomPercent
+    zoomPercent: tabZoomPercent(wc)
   };
 }
 
 function updateWindowTitle(state) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  const title = state && state.title && state.title !== '새 탭' ? state.title + ' - ' + PRODUCT_NAME : PRODUCT_NAME;
+  const title = state && state.title && state.title !== '새 탭'
+    ? state.title + ' - ' + PRODUCT_NAME
+    : PRODUCT_NAME;
   mainWindow.setTitle(title);
 }
 
 function sendTabs() {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('browser:tabs', {
-    activeTabId,
-    tabs: tabs.map(tabState)
-  });
+  mainWindow.webContents.send('browser:tabs', { activeTabId, tabs: tabs.map(tabState) });
 }
 
 function sendBrowserState(tab) {
@@ -264,81 +251,20 @@ function sendBrowserState(tab) {
 
 function downloadWithPrompt(contents, url, filename) {
   if (!url || !contents || contents.isDestroyed()) return;
-
   try {
     const savePath = dialog.showSaveDialogSync(mainWindow || undefined, {
       title: '다른 이름으로 저장',
       defaultPath: path.join(app.getPath('downloads'), suggestedFilename(url, filename))
     });
     if (!savePath || contents.isDestroyed()) return;
-
     contents.session.once('will-download', (_event, item) => {
-      try {
-        item.setSavePath(savePath);
-      } catch (error) {
-        writeLog('DOWNLOAD', 'Failed to set download path for ' + url, error);
-      }
+      try { item.setSavePath(savePath); }
+      catch (error) { writeLog('DOWNLOAD', 'Failed to set download path for ' + url, error); }
     });
     contents.downloadURL(url);
   } catch (error) {
     writeLog('DOWNLOAD', 'Failed to start download for ' + url, error);
   }
-}
-
-function downloadFlashFromTab(tab) {
-  const wc = safeWebContents(tab);
-  if (!wc) return;
-  const candidates = Array.isArray(tab.flashUrls) ? tab.flashUrls.filter(Boolean) : [];
-  if (!candidates.length) {
-    dialog.showMessageBoxSync(mainWindow || undefined, {
-      type: 'info',
-      title: PRODUCT_NAME,
-      message: '현재 페이지에서 직접 다운로드할 Flash 파일 주소를 찾지 못했습니다.',
-      detail: 'Pepper Flash 자체 우클릭 메뉴는 브라우저가 확장할 수 없습니다. 페이지가 SWF 주소를 HTML에 노출하는 경우에만 다운로드할 수 있습니다.',
-      buttons: ['확인'],
-      defaultId: 0,
-      noLink: true
-    });
-    return;
-  }
-  downloadWithPrompt(wc, candidates[0], path.basename(new URL(candidates[0]).pathname) || 'flash.swf');
-}
-
-function nearestZoomIndex(value) {
-  let best = 0;
-  let distance = Infinity;
-  ZOOM_LEVELS.forEach((level, index) => {
-    const nextDistance = Math.abs(level - value);
-    if (nextDistance < distance) {
-      best = index;
-      distance = nextDistance;
-    }
-  });
-  return best;
-}
-
-function setTabZoom(tab, factor) {
-  const wc = safeWebContents(tab);
-  if (!wc) return;
-  const numeric = Number(factor) || 1;
-  const clamped = Math.max(ZOOM_LEVELS[0], Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], numeric));
-  tab.zoomFactor = clamped;
-  try {
-    wc.setZoomFactor(clamped);
-  } catch (error) {
-    writeLog('ZOOM', 'Failed to set zoom factor for tab ' + tab.id, error);
-  }
-  sendBrowserState(tab);
-  sendTabs();
-}
-
-function changeTabZoom(tab, direction) {
-  if (!tab) return;
-  const current = Number(tab.zoomFactor) || 1;
-  let index = nearestZoomIndex(current);
-  index += direction > 0 ? 1 : -1;
-  index = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index));
-  setTabZoom(tab, ZOOM_LEVELS[index]);
 }
 
 function cycleTab(direction) {
@@ -353,15 +279,10 @@ function handleTabCrash(tab, killed) {
   tab.crashed = true;
   tab.lastUrl = wc ? (wc.getURL() || tab.lastUrl || '') : (tab.lastUrl || '');
   writeLog('RENDERER-CRASH', 'Tab ' + tab.id + ' renderer crashed. killed=' + String(!!killed) + ' url=' + tab.lastUrl);
-
   sendTabs();
   sendBrowserState(tab);
-
   if (tab.id === activeTabId && mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('browser:tab-crashed', {
-      id: tab.id,
-      url: tab.lastUrl
-    });
+    mainWindow.webContents.send('browser:tab-crashed', { id: tab.id, url: tab.lastUrl });
   }
 }
 
@@ -372,7 +293,6 @@ function installBrowserHandlers(tab) {
     try {
       if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing) return;
       const key = String(input.key || '').toLowerCase();
-
       if (input.control && !input.shift && key === 'l') {
         event.preventDefault();
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:focus-address');
@@ -398,26 +318,6 @@ function installBrowserHandlers(tab) {
         cycleTab(input.shift ? -1 : 1);
         return;
       }
-      if (input.control && input.shift && key === 's') {
-        event.preventDefault();
-        downloadFlashFromTab(tab);
-        return;
-      }
-      if (input.control && !input.alt && (key === '+' || key === '=')) {
-        event.preventDefault();
-        changeTabZoom(tab, 1);
-        return;
-      }
-      if (input.control && !input.alt && key === '-') {
-        event.preventDefault();
-        changeTabZoom(tab, -1);
-        return;
-      }
-      if (input.control && !input.alt && key === '0') {
-        event.preventDefault();
-        setTabZoom(tab, 1);
-        return;
-      }
       if ((input.control && input.shift && key === 'r') || (input.control && key === 'f5')) {
         event.preventDefault();
         if (!contents.isDestroyed()) contents.reloadIgnoringCache();
@@ -430,7 +330,9 @@ function installBrowserHandlers(tab) {
       }
       if (input.alt && key === 'home') {
         event.preventDefault();
-        if (!contents.isDestroyed()) contents.loadURL(browserConfig.startUrl).catch((error) => writeLog('NAVIGATION', 'Alt+Home failed', error));
+        if (!contents.isDestroyed()) {
+          contents.loadURL(browserConfig.startUrl).catch((error) => writeLog('NAVIGATION', 'Alt+Home failed', error));
+        }
       }
     } catch (error) {
       writeLog('INPUT-HANDLER', 'Browser shortcut handler failed for tab ' + tab.id, error);
@@ -457,14 +359,14 @@ function installBrowserHandlers(tab) {
         template.push({ label: '링크 다운로드...', click: () => downloadWithPrompt(contents, params.linkURL, params.suggestedFilename) });
         template.push({ label: '링크 주소 복사', click: () => clipboard.writeText(params.linkURL) });
       }
-      if (params.srcURL && params.srcURL !== params.linkURL) {
-        const isFlash = params.mediaType === 'plugin' || /\.swf(?:$|[?#])/i.test(params.srcURL);
-        const label = isFlash ? 'Flash 다운로드...' : (params.mediaType === 'image' ? '이미지 다운로드...' : '미디어 다운로드...');
+
+      // Pepper Flash owns its native context menu. Do not try to inject Flash
+      // download actions here. Image/media downloads remain available normally.
+      if (params.srcURL && params.srcURL !== params.linkURL && params.mediaType !== 'plugin' && !/\.swf(?:$|[?#])/i.test(params.srcURL)) {
+        const label = params.mediaType === 'image' ? '이미지 다운로드...' : '미디어 다운로드...';
         template.push({ label, click: () => downloadWithPrompt(contents, params.srcURL, params.suggestedFilename) });
       }
-      if (Array.isArray(tab.flashUrls) && tab.flashUrls.length) {
-        template.push({ label: '페이지 Flash 다운로드...', click: () => downloadFlashFromTab(tab) });
-      }
+
       if (template.length) template.push({ type: 'separator' });
       if (params.isEditable) {
         template.push({ role: 'cut', label: '잘라내기' });
@@ -504,13 +406,10 @@ function installBrowserHandlers(tab) {
 
 function createTab(url, makeActive) {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
-
   const tab = {
     id: nextTabId++,
     crashed: false,
     lastUrl: url || browserConfig.startUrl,
-    zoomFactor: 1,
-    flashUrls: [],
     view: new BrowserView({
       webPreferences: {
         nodeIntegration: false,
@@ -520,7 +419,6 @@ function createTab(url, makeActive) {
       }
     })
   };
-
   tabs.push(tab);
   installBrowserHandlers(tab);
   tab.view.setBounds(browserBounds);
@@ -533,7 +431,6 @@ function createTab(url, makeActive) {
 function activateTab(id, focusPage) {
   const tab = getTab(id);
   if (!tab || !mainWindow || mainWindow.isDestroyed()) return;
-
   try {
     activeTabId = id;
     mainWindow.setBrowserView(tab.view);
@@ -553,19 +450,16 @@ function closeTab(id) {
   const tab = tabs[index];
   const wasActive = tab.id === activeTabId;
   tabs.splice(index, 1);
-
   try {
     const wc = safeWebContents(tab);
     if (wc) wc.destroy();
   } catch (error) {
     writeLog('TAB-CLOSE', 'Failed to destroy tab ' + id, error);
   }
-
   if (!tabs.length) {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
     return;
   }
-
   if (wasActive) {
     const nextIndex = Math.min(index, tabs.length - 1);
     activateTab(tabs[nextIndex].id, true);
@@ -619,33 +513,18 @@ ipcMain.on('browser:bounds', (_event, bounds) => {
   browserBounds = normalizeBounds(bounds);
   const tab = getActiveTab();
   if (tab) {
-    try {
-      tab.view.setBounds(browserBounds);
-    } catch (error) {
-      writeLog('BOUNDS', 'Failed to set BrowserView bounds', error);
-    }
+    try { tab.view.setBounds(browserBounds); }
+    catch (error) { writeLog('BOUNDS', 'Failed to set BrowserView bounds', error); }
   }
 });
 ipcMain.on('browser:page-mousedown', () => {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:close-bookmark-menus');
 });
-ipcMain.on('browser:zoom-wheel', (event, direction) => {
-  const tab = getTabByWebContents(event.sender);
-  if (tab) changeTabZoom(tab, Number(direction) > 0 ? 1 : -1);
-});
-ipcMain.on('browser:flash-candidates', (event, urls) => {
-  const tab = getTabByWebContents(event.sender);
-  if (!tab) return;
-  tab.flashUrls = Array.isArray(urls) ? urls.filter((url) => typeof url === 'string' && url) : [];
-});
 ipcMain.on('browser:navigate', (_event, url) => {
   const wc = activeContents();
   const tab = getActiveTab();
   if (wc && url) {
-    if (tab) {
-      tab.lastUrl = url;
-      tab.flashUrls = [];
-    }
+    if (tab) tab.lastUrl = url;
     wc.loadURL(url).catch((error) => writeLog('NAVIGATION', 'Navigation failed: ' + url, error));
   }
 });
@@ -667,17 +546,11 @@ ipcMain.on('browser:hard-reload', () => {
 });
 ipcMain.on('browser:home', () => {
   const wc = activeContents();
-  const tab = getActiveTab();
-  if (tab) tab.flashUrls = [];
   if (wc) wc.loadURL(browserConfig.startUrl).catch((error) => writeLog('NAVIGATION', 'Home navigation failed', error));
 });
 ipcMain.on('browser:focus-page', () => {
   const wc = activeContents();
   if (wc) wc.focus();
-});
-ipcMain.on('browser:zoom-reset', () => {
-  const tab = getActiveTab();
-  if (tab) setTabZoom(tab, 1);
 });
 ipcMain.on('browser:new-tab', (_event, url) => createTab(url || browserConfig.startUrl, true));
 ipcMain.on('browser:switch-tab', (_event, id) => activateTab(Number(id), true));
@@ -698,17 +571,11 @@ ipcMain.on('browser:bookmark-context', (_event, url) => {
   }
 });
 
-app.on('gpu-process-crashed', (_event, killed) => {
-  writeLog('GPU-CRASH', 'GPU process crashed. killed=' + String(!!killed));
-});
-
+app.on('gpu-process-crashed', (_event, killed) => writeLog('GPU-CRASH', 'GPU process crashed. killed=' + String(!!killed)));
 app.on('ready', async () => {
   writeLog('START', PRODUCT_NAME + ' starting. Electron=' + process.versions.electron + ' Chromium=' + process.versions.chrome);
-  try {
-    await initializeSessionCookiePersistence();
-  } catch (error) {
-    writeLog('SESSION-COOKIE', 'Failed to initialize session cookie persistence', error);
-  }
+  try { await initializeSessionCookiePersistence(); }
+  catch (error) { writeLog('SESSION-COOKIE', 'Failed to initialize session cookie persistence', error); }
   createWindow();
 });
 app.on('before-quit', () => writeLog('STOP', PRODUCT_NAME + ' exiting.'));
