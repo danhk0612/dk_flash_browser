@@ -27,6 +27,7 @@
   let tabState = { activeTabId: null, tabs: [] };
   let isEditingAddress = false;
   const faviconCache = Object.create(null);
+  let bookmarksCache = [];
 
   function send(channel, payload) {
     window.dkBrowser.send(channel, payload);
@@ -61,34 +62,30 @@
     if (origin) faviconCache[origin] = favicon;
   }
 
-  function faviconForUrl(url, explicitFavicon) {
-    if (explicitFavicon) return explicitFavicon;
+  function faviconForUrl(url) {
     if (!url) return '';
     const origin = urlOrigin(url);
     return faviconCache[url] || (origin ? faviconCache[origin] : '') || fallbackFaviconUrl(url);
   }
 
-  function setImageSource(image, pageUrl, explicitFavicon) {
-    const src = faviconForUrl(pageUrl, explicitFavicon);
+  function setImageSource(image, pageUrl, preferredFavicon) {
+    const src = preferredFavicon || faviconForUrl(pageUrl);
     image.style.display = 'none';
     image.removeAttribute('src');
     if (!src) return;
-
-    image.onload = function () {
-      image.style.display = 'block';
-    };
+    image.onload = function () { image.style.display = 'block'; };
     image.onerror = function () {
-      const fallback = fallbackFaviconUrl(pageUrl);
-      if (src !== fallback && fallback) {
-        image.onload = function () {
-          image.style.display = 'block';
-        };
-        image.onerror = function () {
-          image.style.display = 'none';
-          image.removeAttribute('src');
-        };
-        image.src = fallback;
-        return;
+      if (src !== fallbackFaviconUrl(pageUrl)) {
+        const fallback = fallbackFaviconUrl(pageUrl);
+        if (fallback) {
+          image.onload = function () { image.style.display = 'block'; };
+          image.onerror = function () {
+            image.style.display = 'none';
+            image.removeAttribute('src');
+          };
+          image.src = fallback;
+          return;
+        }
       }
       image.style.display = 'none';
       image.removeAttribute('src');
@@ -96,7 +93,7 @@
     image.src = src;
   }
 
-  function loadBookmarks() {
+  function readLegacyBookmarks() {
     try {
       const parsed = JSON.parse(localStorage.getItem(bookmarkStorageKey) || '[]');
       return Array.isArray(parsed) ? parsed : [];
@@ -105,8 +102,30 @@
     }
   }
 
+  function initializeBookmarks() {
+    try {
+      const stored = window.dkBrowser.loadBookmarks();
+      if (Array.isArray(stored) && stored.length) {
+        bookmarksCache = stored;
+        return;
+      }
+    } catch (_error) {}
+
+    const legacy = readLegacyBookmarks();
+    bookmarksCache = legacy;
+    if (legacy.length) {
+      try { window.dkBrowser.saveBookmarks(legacy); } catch (_error) {}
+    }
+  }
+
+  function loadBookmarks() {
+    return bookmarksCache.slice();
+  }
+
   function saveBookmarks(bookmarks) {
-    localStorage.setItem(bookmarkStorageKey, JSON.stringify(bookmarks));
+    bookmarksCache = Array.isArray(bookmarks) ? bookmarks.slice() : [];
+    try { window.dkBrowser.saveBookmarks(bookmarksCache); } catch (_error) {}
+    try { localStorage.setItem(bookmarkStorageKey, JSON.stringify(bookmarksCache)); } catch (_error) {}
   }
 
   function removeBookmark(url) {
@@ -151,36 +170,13 @@
     });
   }
 
-  function refreshBookmarkFaviconsForPage(pageUrl, favicon) {
-    if (!pageUrl || !favicon) return;
-    const pageOrigin = urlOrigin(pageUrl);
-    let changed = false;
-    const bookmarks = loadBookmarks();
-    bookmarks.forEach((bookmark) => {
-      if (bookmark.url === pageUrl || (pageOrigin && urlOrigin(bookmark.url) === pageOrigin)) {
-        if (bookmark.favicon !== favicon) {
-          bookmark.favicon = favicon;
-          changed = true;
-        }
-      }
-    });
-    if (changed) saveBookmarks(bookmarks);
-  }
-
   function toggleBookmark() {
     const url = currentState.url;
     if (!url || url === 'about:blank') return;
     const bookmarks = loadBookmarks();
     const index = bookmarks.findIndex((bookmark) => bookmark.url === url);
-    if (index >= 0) {
-      bookmarks.splice(index, 1);
-    } else {
-      bookmarks.push({
-        url: url,
-        title: currentState.title || url,
-        favicon: faviconForUrl(url)
-      });
-    }
+    if (index >= 0) bookmarks.splice(index, 1);
+    else bookmarks.push({ url: url, title: currentState.title || url, favicon: faviconForUrl(url) });
     saveBookmarks(bookmarks);
     renderBookmarks();
     updateBookmarkButton();
@@ -268,10 +264,22 @@
   function handleFavicon(payload) {
     if (!payload || !payload.url || !payload.favicon) return;
     cacheFavicon(payload.url, payload.favicon);
-    refreshBookmarkFaviconsForPage(payload.url, payload.favicon);
     if (currentState.url && (currentState.url === payload.url || urlOrigin(currentState.url) === urlOrigin(payload.url))) {
       setImageSource(addressFavicon, currentState.url, payload.favicon);
     }
+
+    let bookmarksChanged = false;
+    const bookmarks = loadBookmarks().map((bookmark) => {
+      if (bookmark.url === payload.url || urlOrigin(bookmark.url) === urlOrigin(payload.url)) {
+        if (bookmark.favicon !== payload.favicon) {
+          bookmarksChanged = true;
+          return Object.assign({}, bookmark, { favicon: payload.favicon });
+        }
+      }
+      return bookmark;
+    });
+    if (bookmarksChanged) saveBookmarks(bookmarks);
+
     renderTabs(tabState);
     renderBookmarks();
   }
@@ -406,6 +414,7 @@
     }).observe(browserPlaceholder);
   }
 
+  initializeBookmarks();
   renderBookmarks();
   syncBrowserBounds();
 })();
