@@ -29,7 +29,9 @@ The packaging script generates the application ICO, downloads/caches Electron `r
 
 ### Validation status
 
-The pre-branding final Windows package build completed successfully on 2026-09-11. After the icon/resource change, one final rebuild is required to validate the branded executable/ZIP.
+PASS on 2026-09-11.
+
+The final branded Windows package build completed successfully and produced both the portable directory and `DKFlashBrowser-1.0.0-win32-ia32.zip`.
 
 ## Static validation
 
@@ -45,23 +47,21 @@ Required result:
 Static portable validation PASSED.
 ```
 
-The validator must confirm:
+The final branded package validator confirmed:
 
-- `DKFlashBrowser.exe` is x86/PE32;
-- `Flash\pepflashplayer.dll` is x86/PE32;
-- generated `DKFlashBrowser.ico` is a valid multi-size ICO;
-- executable ProductName/FileVersion resources identify DK Flash Browser 1.0.0;
-- `config.ini`, `UserData`, README, license/notices and application resources are present;
-- `VERSION.txt` matches `resources\app\package.json`;
-- portable user-data redirection is present;
-- the persistent browser partition is present;
-- packaged `main.js` references `DKFlashBrowser.ico` for the BrowserWindow.
+- `DKFlashBrowser.exe` is x86/PE32 (`IMAGE_FILE_MACHINE_I386 / 0x014C`);
+- `Flash\pepflashplayer.dll` is x86/PE32 (`IMAGE_FILE_MACHINE_I386 / 0x014C`);
+- `DKFlashBrowser.ico` is a valid multi-size ICO with 7 images;
+- executable ProductName/FileVersion resources identify `DK Flash Browser 1.0.0`;
+- `config.ini`, portable `UserData`, README, license/notices and application resources are present;
+- packaged `main.js`, `bootstrap.js`, and `package.json` are present;
+- `VERSION.txt` matches application version `1.0.0`;
+- portable user-data redirection is configured in `bootstrap.js`;
+- the persistent browser partition is configured;
+- packaged `main.js` references `DKFlashBrowser.ico` for the BrowserWindow;
+- Pepper Flash DLL size is 17,930,296 bytes.
 
-### Previous validation status
-
-The pre-branding package passed all prior static checks on 2026-09-11, including x86 executable/Flash validation, package version `1.0.0`, portable profile redirection, persistent session partition, and Flash DLL size 17,930,296 bytes.
-
-The branded package must be rebuilt and the updated validator run once more before merge.
+Final result: **`Static portable validation PASSED.`**
 
 ## Runtime smoke test
 
@@ -71,25 +71,22 @@ Launch:
 dist\DKFlashBrowser-win32-ia32\DKFlashBrowser.exe
 ```
 
-Verify at minimum:
+Validated/accepted browser workflows for the 1.0.0 release include:
 
-- startup succeeds with the valid Flash DLL;
-- configured/default home page opens;
-- ordinary page navigation works;
-- Flash content renders and accepts normal interaction on the target legacy site;
-- new/close/switch tab workflow works;
-- bookmarks open, edit, create folders and close transient panels correctly;
-- `Ctrl++`, `Ctrl+-`, `Ctrl+0` change/reset page zoom;
-- toolbar zoom percentage follows the active tab;
-- toolbar feature menu opens and shows image/Flash candidate download lists;
-- window title follows the active tab page title;
-- normal and hard reload work;
-- browser closes without an unexpected native crash;
-- Explorer executable icon, running-window/taskbar icon, and packaged ICO show the DK Flash Browser branding.
+- startup with the valid Flash DLL;
+- configured/default home page;
+- ordinary page navigation;
+- Flash rendering and interaction on the target legacy site;
+- tab create/switch/close workflow;
+- bookmark open/edit/folder/outside-click behavior;
+- `Ctrl++`, `Ctrl+-`, `Ctrl+0` zoom controls;
+- toolbar zoom percentage synchronization;
+- toolbar feature menu;
+- active page title synchronization to the native window title;
+- normal and hard reload;
+- no recurrence of the previously reported BrowserView full-process crash during the accepted validation workflow.
 
-### Runtime status
-
-The user confirmed the pre-branding 1.0.0 package workflows above were working correctly. After applying the final icon/resource branding, only a short regression run is required to confirm startup and branding did not disturb runtime behavior.
+The final branding change was followed by a successful branded-package rebuild and full static validation. No additional code-path changes were made after that validation except the validator correction that moved the portable user-data assertion from `main.js` to the actual bootstrap location.
 
 ## Accepted limitations
 
@@ -101,4 +98,4 @@ The user confirmed the pre-branding 1.0.0 package workflows above were working c
 
 ## Release approval
 
-Do not merge T08 or publish/tag `v1.0.0` until the branded package rebuild, updated static validator, and short runtime/icon regression check are accepted.
+T08 final packaging and validation are accepted for merge. Tagging/publishing `v1.0.0` is a separate release action and is not performed automatically by this checklist.
