@@ -9,6 +9,14 @@
     return element && !element.hidden ? element : null;
   }
 
+  function focusBrowserChrome() {
+    // Electron 6 BrowserView can remain internally focused even after the user
+    // clicks browser chrome. Explicitly focus the chrome renderer while bookmark
+    // UI is being used so the next click in the BrowserView produces a reliable
+    // focus transition and closes the transient bookmark UI.
+    try { window.focus(); } catch (_error) {}
+  }
+
   function closeFolderDropdown() {
     const dropdown = visible('.bookmark-dropdown');
     if (!dropdown) return false;
@@ -56,17 +64,23 @@
     return editorClosed || contextClosed || dropdownClosed;
   }
 
+  // Any interaction with bookmark chrome explicitly transfers focus away from
+  // the BrowserView. This is necessary on old Electron where a BrowserView may
+  // otherwise remain logically focused while the chrome receives mouse input.
   document.addEventListener('mousedown', function (event) {
     const dropdown = visible('.bookmark-dropdown');
     const context = visible('.bookmark-context-panel');
     const editor = visible('.bookmark-editor-panel');
+
+    if (bookmarkBar.contains(event.target) ||
+        (dropdown && dropdown.contains(event.target)) ||
+        (context && context.contains(event.target)) ||
+        (editor && editor.contains(event.target))) {
+      focusBrowserChrome();
+      return;
+    }
+
     if (!dropdown && !context && !editor) return;
-
-    if (bookmarkBar.contains(event.target)) return;
-    if (dropdown && dropdown.contains(event.target)) return;
-    if (context && context.contains(event.target)) return;
-    if (editor && editor.contains(event.target)) return;
-
     closeTransientPanels();
   }, true);
 
