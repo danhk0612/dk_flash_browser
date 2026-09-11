@@ -84,6 +84,19 @@ app.on('web-contents-created', (_event, contents) => {
       return undefined;
     };
 
+    // BrowserView content is a separate native surface. Clicking the page does
+    // not generate DOM events in the browser chrome renderer, so tell the chrome
+    // explicitly to close bookmark menus whenever page content gains focus.
+    contents.on('focus', () => {
+      try {
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (win && !win.isDestroyed()) win.webContents.send('browser:close-bookmark-menus');
+        });
+      } catch (error) {
+        writeBootstrapLog('BOOKMARK-MENU', 'Failed to close bookmark menus on BrowserView focus', error);
+      }
+    });
+
     contents.on('page-favicon-updated', (_faviconEvent, favicons) => {
       try {
         if (!Array.isArray(favicons) || !favicons.length || contents.isDestroyed()) return;
