@@ -97,3 +97,17 @@
 .bookmark-bar:hover::-webkit-scrollbar {
   height: 4px;
 }
+
+/* Keep icon slots reserved while a favicon is loading. browser.js temporarily
+   sets display:none during source changes; overriding only the layout property
+   prevents the address text/tab title from jumping left and right. */
+.address-favicon,
+.tab-favicon {
+  display: block !important;
+  visibility: hidden;
+}
+
+.address-favicon[src],
+.tab-favicon[src] {
+  visibility: visible;
+}
