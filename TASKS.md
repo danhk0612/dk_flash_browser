@@ -31,7 +31,7 @@ Status: complete and validated on Windows / real legacy site
 
 ## T02 — Browser UI baseline
 
-Status: implementation complete; Windows revalidation required after input/bookmark fixes
+Status: implementation complete; Windows revalidation required after input/bookmark fixes and BrowserView migration
 
 - Custom application shell without Whale/Chrome UI.
 - Product name: DK Flash Browser.
@@ -45,6 +45,8 @@ Status: implementation complete; Windows revalidation required after input/bookm
 - Preserve user-entered address text while the current page is still loading or navigating.
 - Explicit address-field text/caret colors.
 - Keyboard shortcuts for address focus, bookmarks, reload, hard reload, and home.
+- Page rendering uses a native Electron `BrowserView` instead of renderer `<webview>` wrapping, to keep legacy page input behavior closer to the validated T01 path.
+- Browser chrome communicates with the active page through narrow IPC commands/state only.
 - Guest shortcut interception only on non-composing key-down events to avoid interfering with text/IME input.
 - Basic right-click download for direct link and image/media URLs.
 - Standard cut/copy/paste/select-all context actions where applicable.
@@ -54,7 +56,7 @@ Revalidation before merge:
 
 - Existing Flash content still renders and accepts input.
 - Address text remains visible while typing and Enter navigates to the entered value.
-- HTML input fields inside the legacy page accept normal text/IME input.
+- HTML input fields inside the legacy page accept normal text/IME input consistently, including initial load without requiring refresh.
 - Bookmark right-click shows `북마크 삭제` and does not remove the bookmark until selected.
 - Home/back/forward/reload/hard reload work.
 - Bookmark persistence works after restart.
@@ -68,6 +70,7 @@ Revalidation before merge:
 - New-tab button.
 - Tab selection and close.
 - URL/title synchronization.
+- Use one `BrowserView` per tab and preserve the T02 input-stable rendering path.
 - Preserve the T02 navigation, home, bookmarks, hard reload, and download behavior per active tab.
 
 ## T04 — Legacy popup / new-window behavior
