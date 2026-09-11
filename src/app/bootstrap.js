@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { app, BrowserWindow, crashReporter, dialog } = require('electron');
+const { app, BrowserWindow, crashReporter, dialog, ipcMain } = require('electron');
 
 const DEFAULT_START_URL = 'https://html.duckduckgo.com/html';
 const MIN_FLASH_SIZE = 4 * 1024 * 1024;
@@ -135,7 +135,6 @@ function parseDefaultBookmarks() {
 
 function initializeDefaultBookmarks() {
   try {
-    // Existing file, including an intentionally empty bookmark set, always wins.
     if (fs.existsSync(bookmarksPath)) return;
 
     const defaults = parseDefaultBookmarks();
@@ -188,8 +187,6 @@ function validateFlashDll() {
 }
 
 try {
-  // Electron 6 does not support app.setPath('crashDumps', ...).
-  // Keep the portable browser profile fixed before Crashpad starts.
   fs.mkdirSync(userDataPath, { recursive: true });
   app.setPath('userData', userDataPath);
 
@@ -222,11 +219,6 @@ try {
   writeBootstrapLog('CRASH-REPORTER', 'Failed to initialize crash reporter', error);
 }
 
-// Electron 5-7 on Windows has known native BrowserView lifecycle crashes when a
-// BrowserView WebContents is explicitly destroyed while native view/layout work
-// is still in flight. DK Flash Browser uses BrowserViews as tabs, so stability is
-// more important than reclaiming a closed tab immediately. Closed BrowserView
-// renderers are left for Electron/OS cleanup when the application exits.
 app.on('web-contents-created', (_event, contents) => {
   try {
     if (!contents || typeof contents.getType !== 'function' || contents.getType() !== 'browserView') return;
@@ -273,6 +265,18 @@ app.on('web-contents-created', (_event, contents) => {
     });
   } catch (error) {
     writeBootstrapLog('BROWSERVIEW-LIFECYCLE', 'Failed to install BrowserView destroy guard', error);
+  }
+});
+
+ipcMain.on('browser:focus-chrome', () => {
+  try {
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+        win.webContents.focus();
+      }
+    });
+  } catch (error) {
+    writeBootstrapLog('BOOKMARK-MENU', 'Failed to focus browser chrome webContents', error);
   }
 });
 
