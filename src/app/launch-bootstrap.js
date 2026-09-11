@@ -1,6 +1,24 @@
 'use strict';
 
+const path = require('path');
 const { app } = require('electron');
+
+const FLASH_VERSION = '29.0.0.140';
+
+function getRootDir() {
+  return process.defaultApp ? path.resolve(__dirname, '..', '..') : path.dirname(process.execPath);
+}
+
+// Pepper Flash must be registered with Chromium before Electron becomes ready.
+// Keep this in the earliest application entry point so both development and
+// packaged/public-release launches use the same user-supplied DLL path.
+const rootDir = getRootDir();
+const flashPath = path.join(rootDir, 'Flash', 'pepflashplayer.dll');
+app.commandLine.appendSwitch('ppapi-flash-path', flashPath);
+app.commandLine.appendSwitch('ppapi-flash-version', FLASH_VERSION);
+app.commandLine.appendSwitch('allow-outdated-plugins');
+app.commandLine.appendSwitch('disable-component-update');
+app.commandLine.appendSwitch('disable-background-networking');
 
 function normalizeLaunchUrl(value) {
   const input = String(value || '').trim();

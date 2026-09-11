@@ -83,6 +83,7 @@ $UserData = Join-Path $PackageDir 'UserData'
 $AppDir = Join-Path $PackageDir 'resources\app'
 $MainJs = Join-Path $AppDir 'main.js'
 $BootstrapJs = Join-Path $AppDir 'bootstrap.js'
+$LaunchBootstrapJs = Join-Path $AppDir 'launch-bootstrap.js'
 $AppManifest = Join-Path $AppDir 'package.json'
 $VersionFile = Join-Path $PackageDir 'VERSION.txt'
 $Readme = Join-Path $PackageDir 'README.md'
@@ -105,11 +106,23 @@ Assert-Exists $Config 'config.ini'
 Assert-Exists $UserData 'portable UserData directory'
 Assert-Exists $MainJs 'packaged application main.js'
 Assert-Exists $BootstrapJs 'packaged application bootstrap.js'
+Assert-Exists $LaunchBootstrapJs 'packaged application launch-bootstrap.js'
 Assert-Exists $AppManifest 'packaged application manifest'
 Assert-Exists $VersionFile 'VERSION.txt'
 Assert-Exists $Readme 'README.md'
 Assert-Exists $License 'project license'
 Assert-Exists $Notices 'third-party notices'
+
+if ($PublicRelease) {
+    $ExpectedConfig = Join-Path $Root 'config.example.ini'
+    Assert-Exists $ExpectedConfig 'repository config.example.ini'
+    $expectedConfigHash = (Get-FileHash $ExpectedConfig -Algorithm SHA256).Hash
+    $packagedConfigHash = (Get-FileHash $Config -Algorithm SHA256).Hash
+    if ($expectedConfigHash -ne $packagedConfigHash) {
+        throw 'Public release config.ini does not exactly match repository config.example.ini.'
+    }
+    Write-Host '[OK] public release config.ini exactly matches config.example.ini'
+}
 
 $manifest = Get-Content $AppManifest -Raw | ConvertFrom-Json
 $manifestVersion = [string]$manifest.version
@@ -138,6 +151,18 @@ if ($bootstrapText -notmatch 'persist:dk-flash-browser') {
     throw 'Packaged bootstrap.js does not contain the expected persistent browser partition.'
 }
 Write-Host '[OK] persistent browser session partition is configured'
+
+$launchBootstrapText = Get-Content $LaunchBootstrapJs -Raw
+if ($launchBootstrapText -notmatch "appendSwitch\('ppapi-flash-path',\s*flashPath\)") {
+    throw 'Packaged launch-bootstrap.js does not register the Pepper Flash DLL path before Electron startup.'
+}
+if ($launchBootstrapText -notmatch "appendSwitch\('ppapi-flash-version',\s*FLASH_VERSION\)") {
+    throw 'Packaged launch-bootstrap.js does not register the Pepper Flash version.'
+}
+if ($launchBootstrapText -notmatch "appendSwitch\('allow-outdated-plugins'\)") {
+    throw 'Packaged launch-bootstrap.js does not allow the legacy Pepper Flash plug-in.'
+}
+Write-Host '[OK] packaged launch bootstrap registers Pepper Flash path/version before Electron ready'
 
 $mainText = Get-Content $MainJs -Raw
 if ($mainText -notmatch 'DKFlashBrowser\.ico') {
