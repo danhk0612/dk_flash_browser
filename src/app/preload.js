@@ -13,8 +13,7 @@ const bookmarksPath = path.join(getRootDir(), 'UserData', 'bookmarks.json');
 function loadBookmarksFile() {
   try {
     if (!fs.existsSync(bookmarksPath)) return [];
-    const parsed = JSON.parse(fs.readFileSync(bookmarksPath, 'utf8'));
-    return Array.isArray(parsed) ? parsed : [];
+    return JSON.parse(fs.readFileSync(bookmarksPath, 'utf8'));
   } catch (_error) {
     return [];
   }
@@ -22,7 +21,7 @@ function loadBookmarksFile() {
 
 function saveBookmarksFile(bookmarks) {
   try {
-    const safe = Array.isArray(bookmarks) ? bookmarks : [];
+    const safe = bookmarks && typeof bookmarks === 'object' ? bookmarks : [];
     fs.mkdirSync(path.dirname(bookmarksPath), { recursive: true });
     const tempPath = bookmarksPath + '.tmp';
     fs.writeFileSync(tempPath, JSON.stringify(safe, null, 2), 'utf8');
