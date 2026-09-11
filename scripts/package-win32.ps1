@@ -2,7 +2,13 @@ $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path -Parent $PSScriptRoot
 $Bootstrap = Join-Path $PSScriptRoot 'bootstrap-electron.ps1'
+$GenerateIcon = Join-Path $PSScriptRoot 'generate-icon.ps1'
 $RuntimeDir = Join-Path $Root '.runtime\electron-v6.1.12-win32-ia32'
+$ToolsDir = Join-Path $Root '.runtime\tools'
+$BrandingDir = Join-Path $Root '.runtime\branding'
+$IconPath = Join-Path $BrandingDir 'DKFlashBrowser.ico'
+$RcEdit = Join-Path $ToolsDir 'rcedit-v2.0.0-x86.exe'
+$RcEditUrl = 'https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x86.exe'
 $FlashDll = Join-Path $Root 'Flash\pepflashplayer.dll'
 $Config = Join-Path $Root 'config.ini'
 $ConfigExample = Join-Path $Root 'config.example.ini'
@@ -24,9 +30,29 @@ if (-not $Version) {
 $ZipPath = Join-Path $DistRoot ("DKFlashBrowser-{0}-win32-ia32.zip" -f $Version)
 
 & $Bootstrap
+& $GenerateIcon -OutputPath $IconPath
 
 if (-not (Test-Path $FlashDll)) {
     Write-Error "Missing Flash DLL: $FlashDll"
+}
+if (-not (Test-Path $IconPath)) {
+    Write-Error "Icon generation failed: $IconPath"
+}
+
+New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
+if (-not (Test-Path $RcEdit)) {
+    Write-Host "Downloading Electron rcedit v2.0.0 x86: $RcEditUrl"
+    $oldSecurityProtocol = [Net.ServicePointManager]::SecurityProtocol
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = $oldSecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -UseBasicParsing -Uri $RcEditUrl -OutFile $RcEdit
+    }
+    finally {
+        [Net.ServicePointManager]::SecurityProtocol = $oldSecurityProtocol
+    }
+}
+if (-not (Test-Path $RcEdit) -or (Get-Item $RcEdit).Length -lt 100000) {
+    Write-Error "Invalid rcedit tool: $RcEdit"
 }
 
 if (Test-Path $OutputDir) {
@@ -42,6 +68,21 @@ Copy-Item (Join-Path $RuntimeDir '*') $OutputDir -Recurse -Force
 $ElectronExe = Join-Path $OutputDir 'electron.exe'
 $BrowserExe = Join-Path $OutputDir 'DKFlashBrowser.exe'
 Rename-Item -Path $ElectronExe -NewName 'DKFlashBrowser.exe'
+
+Write-Host 'Applying DK Flash Browser executable icon and version resources...'
+& $RcEdit $BrowserExe `
+    --set-icon $IconPath `
+    --set-version-string 'ProductName' 'DK Flash Browser' `
+    --set-version-string 'FileDescription' 'DK Flash Browser' `
+    --set-version-string 'InternalName' 'DKFlashBrowser' `
+    --set-version-string 'OriginalFilename' 'DKFlashBrowser.exe' `
+    --set-file-version $Version `
+    --set-product-version $Version
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "rcedit failed with exit code $LASTEXITCODE"
+}
+
+Copy-Item $IconPath (Join-Path $OutputDir 'DKFlashBrowser.ico') -Force
 
 $PackagedAppDir = Join-Path $OutputDir 'resources\app'
 New-Item -ItemType Directory -Force -Path $PackagedAppDir | Out-Null
@@ -67,5 +108,6 @@ Compress-Archive -Path (Join-Path $OutputDir '*') -DestinationPath $ZipPath -Com
 
 Write-Host "Package ready: $OutputDir"
 Write-Host "Executable: $BrowserExe"
+Write-Host "Application icon: $(Join-Path $OutputDir 'DKFlashBrowser.ico')"
 Write-Host "Version: $Version"
 Write-Host "Portable ZIP: $ZipPath"
