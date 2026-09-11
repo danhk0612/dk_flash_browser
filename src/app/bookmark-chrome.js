@@ -7,6 +7,11 @@
 
   const MENU_WIDTH = 296;
   const MENU_GAP = 4;
+  const MAX_MENU_HEIGHT = 320;
+  const EMPTY_MENU_HEIGHT = 58;
+  const MENU_ITEM_HEIGHT = 32;
+  const MENU_PADDING = 12;
+
   const layer = document.createElement('div');
   layer.className = 'chrome-bookmark-layer';
   bookmarkBar.parentNode.insertBefore(layer, browserPlaceholder);
@@ -105,22 +110,40 @@
     return Math.max(4, Math.min(left, window.innerWidth - width - 4));
   }
 
-  function openLayer(height) {
-    layer.classList.add('open');
-    layer.style.flexBasis = String(height || 320) + 'px';
-    layer.style.height = String(height || 320) + 'px';
-    layer.style.minHeight = String(height || 320) + 'px';
+  function setLayerHeight(height) {
+    const value = Math.max(0, Math.min(Number(height) || 0, MAX_MENU_HEIGHT));
+    if (value <= 0) {
+      layer.classList.remove('open');
+      layer.style.flexBasis = '0px';
+      layer.style.height = '0px';
+      layer.style.minHeight = '0px';
+    } else {
+      layer.classList.add('open');
+      layer.style.flexBasis = value + 'px';
+      layer.style.height = value + 'px';
+      layer.style.minHeight = value + 'px';
+    }
     syncBounds();
+  }
+
+  function openLayer(height) {
+    setLayerHeight(height);
   }
 
   function closeLayer() {
     menuChain = [];
     layer.textContent = '';
-    layer.classList.remove('open');
-    layer.style.flexBasis = '0px';
-    layer.style.height = '0px';
-    layer.style.minHeight = '0px';
-    syncBounds();
+    setLayerHeight(0);
+  }
+
+  function folderMenuHeight(folder) {
+    const count = folder && Array.isArray(folder.children) ? folder.children.length : 0;
+    if (!count) return EMPTY_MENU_HEIGHT;
+    return Math.min(MAX_MENU_HEIGHT, MENU_PADDING + count * MENU_ITEM_HEIGHT + 2);
+  }
+
+  function contextMenuHeight(itemCount, separatorCount) {
+    return Math.min(MAX_MENU_HEIGHT, MENU_PADDING + itemCount * MENU_ITEM_HEIGHT + separatorCount * 11 + 2);
   }
 
   function faviconFor(node) {
@@ -151,7 +174,7 @@
     return icon;
   }
 
-  function setDrag(item, node, parentId, depth) {
+  function setDrag(item, node, parentId) {
     item.draggable = true;
     item.addEventListener('dragstart', function (event) {
       event.dataTransfer.effectAllowed = 'move';
@@ -187,16 +210,19 @@
 
   function renderFolderMenus() {
     layer.textContent = '';
-    openLayer(320);
+    let neededHeight = EMPTY_MENU_HEIGHT;
 
     for (let depth = 0; depth < menuChain.length; depth += 1) {
       const folderId = menuChain[depth];
       const found = findNode(folderId);
       if (!found || found.node.type !== 'folder') continue;
       const folder = found.node;
+      neededHeight = Math.max(neededHeight, folderMenuHeight(folder));
+
       const menu = document.createElement('div');
       menu.className = 'chrome-bookmark-menu';
       menu.style.left = menuLeftForDepth(depth) + 'px';
+      menu.style.maxHeight = Math.max(44, neededHeight - 6) + 'px';
 
       const children = Array.isArray(folder.children) ? folder.children : [];
       if (!children.length) {
@@ -210,11 +236,7 @@
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'chrome-bookmark-menu-item';
-        if (node.type === 'folder') {
-          item.appendChild(makeFolderIcon());
-        } else {
-          item.appendChild(makeBookmarkIcon(node));
-        }
+        item.appendChild(node.type === 'folder' ? makeFolderIcon() : makeBookmarkIcon(node));
 
         const title = document.createElement('span');
         title.className = 'chrome-bookmark-menu-title';
@@ -255,7 +277,7 @@
           event.stopPropagation();
           showContextMenu(node.id, event.clientX);
         });
-        setDrag(item, node, folder.id, depth);
+        setDrag(item, node, folder.id);
         menu.appendChild(item);
       });
 
@@ -273,10 +295,13 @@
       menu.addEventListener('contextmenu', function (event) {
         if (event.target !== menu) return;
         event.preventDefault();
+        event.stopPropagation();
         showContextMenu(folder.id, event.clientX, true);
       });
       layer.appendChild(menu);
     }
+
+    openLayer(neededHeight);
   }
 
   function contextItem(label, handler) {
@@ -291,7 +316,11 @@
     title.className = 'chrome-bookmark-menu-title';
     title.textContent = label;
     button.appendChild(title);
-    button.addEventListener('click', function () { handler(); });
+    button.addEventListener('click', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      handler();
+    });
     return button;
   }
 
@@ -303,44 +332,56 @@
 
   function showContextMenu(id, x, emptyFolder) {
     layer.textContent = '';
-    openLayer(250);
     contextAnchorX = clampLeft(Number(x) || 8, MENU_WIDTH);
     const menu = document.createElement('div');
     menu.className = 'chrome-bookmark-menu';
     menu.style.left = contextAnchorX + 'px';
     const found = id ? findNode(id) : null;
     const node = found ? found.node : null;
+    let itemCount = 0;
+    let separatorCount = 0;
+
+    function addItem(label, fn) {
+      menu.appendChild(contextItem(label, fn));
+      itemCount += 1;
+    }
+    function sep() {
+      addSeparator(menu);
+      separatorCount += 1;
+    }
 
     if (node && node.type === 'bookmark') {
-      menu.appendChild(contextItem('탭에서 열기', function () {
+      addItem('탭에서 열기', function () {
         closeLayer();
         window.dkBrowser.send('browser:navigate', node.url);
-      }));
-      menu.appendChild(contextItem('새 탭에서 열기', function () {
+      });
+      addItem('새 탭에서 열기', function () {
         closeLayer();
         window.dkBrowser.send('browser:new-tab', node.url);
-      }));
-      addSeparator(menu);
-      menu.appendChild(contextItem('수정…', function () { showEditor('edit', node.id); }));
-      menu.appendChild(contextItem('새 폴더…', function () { showEditor('folder', parentFolderId(node.id)); }));
-      addSeparator(menu);
-      menu.appendChild(contextItem('삭제', function () { showDelete(node.id); }));
+      });
+      sep();
+      addItem('수정…', function () { showEditor('edit', node.id); });
+      addItem('새 폴더…', function () { showEditor('folder', parentFolderId(node.id)); });
+      sep();
+      addItem('삭제', function () { showDelete(node.id); });
     } else if (node && node.type === 'folder' && !emptyFolder) {
-      menu.appendChild(contextItem('열기', function () {
+      addItem('열기', function () {
         menuChain = [node.id];
         rootAnchorX = contextAnchorX;
         renderFolderMenus();
-      }));
-      addSeparator(menu);
-      menu.appendChild(contextItem('수정…', function () { showEditor('edit', node.id); }));
-      menu.appendChild(contextItem('새 폴더…', function () { showEditor('folder', node.id); }));
-      addSeparator(menu);
-      menu.appendChild(contextItem('삭제', function () { showDelete(node.id); }));
+      });
+      sep();
+      addItem('수정…', function () { showEditor('edit', node.id); });
+      addItem('새 폴더…', function () { showEditor('folder', node.id); });
+      sep();
+      addItem('삭제', function () { showDelete(node.id); });
     } else {
       const parentId = node && node.type === 'folder' ? node.id : null;
-      menu.appendChild(contextItem('새 폴더…', function () { showEditor('folder', parentId); }));
+      addItem('새 폴더…', function () { showEditor('folder', parentId); });
     }
+
     layer.appendChild(menu);
+    openLayer(contextMenuHeight(itemCount, separatorCount));
   }
 
   function editorButton(label, primary, handler) {
@@ -348,7 +389,11 @@
     button.type = 'button';
     button.className = 'chrome-bookmark-editor-button' + (primary ? ' primary' : '');
     button.textContent = label;
-    button.addEventListener('click', handler);
+    button.addEventListener('click', function (event) {
+      event.preventDefault();
+      event.stopPropagation();
+      handler();
+    });
     return button;
   }
 
@@ -356,7 +401,6 @@
     const found = mode === 'edit' ? findNode(id) : null;
     const node = found ? found.node : null;
     layer.textContent = '';
-    openLayer(205);
     const editor = document.createElement('div');
     editor.className = 'chrome-bookmark-editor';
     editor.style.left = clampLeft(contextAnchorX || rootAnchorX || 8, 390) + 'px';
@@ -418,6 +462,8 @@
     editor.appendChild(actions);
     layer.appendChild(editor);
 
+    openLayer(node && node.type === 'bookmark' ? 205 : 158);
+
     function keyHandler(event) {
       if (event.key === 'Enter') { event.preventDefault(); save.click(); }
       if (event.key === 'Escape') { event.preventDefault(); closeLayer(); }
@@ -432,7 +478,6 @@
     if (!found) return;
     const node = found.node;
     layer.textContent = '';
-    openLayer(150);
     const editor = document.createElement('div');
     editor.className = 'chrome-bookmark-editor';
     editor.style.left = clampLeft(contextAnchorX || rootAnchorX || 8, 390) + 'px';
@@ -456,15 +501,25 @@
     actions.appendChild(editorButton('취소', false, closeLayer));
     editor.appendChild(actions);
     layer.appendChild(editor);
+    openLayer(138);
   }
 
   bookmarkBar.addEventListener('click', function (event) {
     const folder = event.target.closest('.bookmark-item.bookmark-folder');
-    if (!folder || !bookmarkBar.contains(folder)) return;
+    if (!folder || !bookmarkBar.contains(folder)) {
+      if (layer.classList.contains('open')) closeLayer();
+      return;
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
     const id = folder.dataset.bookmarkId;
     if (!id) return;
+
+    if (menuChain.length === 1 && menuChain[0] === id && layer.classList.contains('open')) {
+      closeLayer();
+      return;
+    }
+
     const barRect = bookmarkBar.getBoundingClientRect();
     const itemRect = folder.getBoundingClientRect();
     rootAnchorX = clampLeft(itemRect.left - barRect.left + 8, MENU_WIDTH);
@@ -484,11 +539,31 @@
     }
   }, true);
 
+  layer.addEventListener('mousedown', function (event) {
+    if (event.target === layer) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeLayer();
+    }
+  }, true);
+
   document.addEventListener('mousedown', function (event) {
     if (!layer.classList.contains('open')) return;
-    if (layer.contains(event.target) || bookmarkBar.contains(event.target)) return;
+    if (bookmarkBar.contains(event.target)) return;
+    if (layer.contains(event.target) && event.target !== layer) return;
     closeLayer();
   }, true);
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && layer.classList.contains('open')) {
+      event.preventDefault();
+      closeLayer();
+    }
+  }, true);
+
+  window.dkBrowser.on('browser:close-bookmark-menus', function () {
+    if (layer.classList.contains('open')) closeLayer();
+  });
 
   window.addEventListener('resize', function () {
     if (layer.classList.contains('open')) closeLayer();
