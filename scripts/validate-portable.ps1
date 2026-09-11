@@ -75,6 +75,7 @@ $Config = Join-Path $PackageDir 'config.ini'
 $UserData = Join-Path $PackageDir 'UserData'
 $AppDir = Join-Path $PackageDir 'resources\app'
 $MainJs = Join-Path $AppDir 'main.js'
+$BootstrapJs = Join-Path $AppDir 'bootstrap.js'
 $AppManifest = Join-Path $AppDir 'package.json'
 $VersionFile = Join-Path $PackageDir 'VERSION.txt'
 $Readme = Join-Path $PackageDir 'README.md'
@@ -87,6 +88,7 @@ Assert-Ico $AppIcon
 Assert-Exists $Config 'config.ini'
 Assert-Exists $UserData 'portable UserData directory'
 Assert-Exists $MainJs 'packaged application main.js'
+Assert-Exists $BootstrapJs 'packaged application bootstrap.js'
 Assert-Exists $AppManifest 'packaged application manifest'
 Assert-Exists $VersionFile 'VERSION.txt'
 Assert-Exists $Readme 'README.md'
@@ -110,17 +112,18 @@ if (-not ([string]$versionInfo.FileVersion).StartsWith($packageVersion)) {
 }
 Write-Host "[OK] executable branding/version resources: $($versionInfo.ProductName) $($versionInfo.FileVersion)"
 
-$mainText = Get-Content $MainJs -Raw
-if ($mainText -notmatch "app\.setPath\('userData',\s*userDataPath\)") {
-    throw 'Packaged main.js does not explicitly redirect Electron userData to the portable UserData path.'
+$bootstrapText = Get-Content $BootstrapJs -Raw
+if ($bootstrapText -notmatch "app\.setPath\('userData',\s*userDataPath\)") {
+    throw 'Packaged bootstrap.js does not explicitly redirect Electron userData to the portable UserData path.'
 }
-Write-Host '[OK] packaged app redirects userData to the portable package root'
+Write-Host '[OK] packaged bootstrap redirects userData to the portable package root'
 
-if ($mainText -notmatch 'persist:dk-flash-browser') {
-    throw 'Packaged main.js does not contain the expected persistent browser partition.'
+if ($bootstrapText -notmatch 'persist:dk-flash-browser') {
+    throw 'Packaged bootstrap.js does not contain the expected persistent browser partition.'
 }
 Write-Host '[OK] persistent browser session partition is configured'
 
+$mainText = Get-Content $MainJs -Raw
 if ($mainText -notmatch 'DKFlashBrowser\.ico') {
     throw 'Packaged main.js does not reference the packaged application icon.'
 }
