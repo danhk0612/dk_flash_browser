@@ -6,12 +6,8 @@ window.addEventListener('mousedown', () => {
   ipcRenderer.send('browser:page-mousedown');
 }, true);
 
-// Electron 6 emits webContents "zoom-changed" for Ctrl+wheel. Do not prevent
-// the native wheel event here; bootstrap.js owns the actual zoom step and UI sync.
-window.addEventListener('wheel', (event) => {
-  if (!event.ctrlKey || !event.deltaY) return;
-  ipcRenderer.send('browser:native-zoom-wheel', event.deltaY < 0 ? 1 : -1);
-}, { capture: true, passive: true });
+// Ctrl+wheel is handled by Electron's webContents "zoom-changed" event in
+// bootstrap.js. Do not prevent or duplicate that native event here.
 
 function resolveCandidate(value) {
   const raw = String(value || '').trim();
