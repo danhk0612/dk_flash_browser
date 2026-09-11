@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { app, crashReporter } = require('electron');
+const { app, BrowserWindow, crashReporter } = require('electron');
 
 function getRootDir() {
   return process.defaultApp ? path.resolve(__dirname, '..', '..') : path.dirname(process.execPath);
@@ -83,6 +83,21 @@ app.on('web-contents-created', (_event, contents) => {
       }
       return undefined;
     };
+
+    contents.on('page-favicon-updated', (_faviconEvent, favicons) => {
+      try {
+        if (!Array.isArray(favicons) || !favicons.length || contents.isDestroyed()) return;
+        const payload = {
+          url: contents.getURL() || '',
+          favicon: favicons[0] || ''
+        };
+        BrowserWindow.getAllWindows().forEach((win) => {
+          if (win && !win.isDestroyed()) win.webContents.send('browser:favicon', payload);
+        });
+      } catch (error) {
+        writeBootstrapLog('FAVICON', 'Failed to forward page favicon', error);
+      }
+    });
   } catch (error) {
     writeBootstrapLog('BROWSERVIEW-LIFECYCLE', 'Failed to install BrowserView destroy guard', error);
   }
