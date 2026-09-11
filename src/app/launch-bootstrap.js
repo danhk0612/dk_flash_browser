@@ -1,7 +1,9 @@
 'use strict';
 
 const path = require('path');
+const os = require('os');
 const { app, BrowserWindow, ipcMain } = require('electron');
+const appManifest = require('./package.json');
 
 const FLASH_VERSION = '29.0.0.140';
 const BROWSER_PARTITION = 'persist:dk-flash-browser';
@@ -11,9 +13,26 @@ function getRootDir() {
   return process.defaultApp ? path.resolve(__dirname, '..', '..') : path.dirname(process.execPath);
 }
 
-// Pepper Flash must be registered with Chromium before Electron becomes ready.
-// Keep this in the earliest application entry point so both development and
-// packaged/public-release launches use the same user-supplied DLL path.
+function buildBrowserUserAgent() {
+  const releaseParts = String(os.release() || '10.0').split('.');
+  const windowsVersion = (releaseParts[0] || '10') + '.' + (releaseParts[1] || '0');
+  const wow64 = process.arch === 'ia32' && !!process.env.PROCESSOR_ARCHITEW6432;
+  const platformToken = 'Windows NT ' + windowsVersion + (wow64 ? '; WOW64' : '');
+  const chromiumVersion = String(process.versions.chrome || '76.0.3809.146');
+  const appVersion = String(appManifest.version || '1.0.0');
+
+  // Keep the Chrome token for legacy site compatibility while appending explicit
+  // DK Flash Browser / Chromium identity tokens. Product tokens intentionally do
+  // not contain spaces because many user-agent parsers expect token/version form.
+  return 'Mozilla/5.0 (' + platformToken + ') ' +
+    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'Chrome/' + chromiumVersion + ' Safari/537.36 ' +
+    'DKFlashBrowser/' + appVersion + ' Chromium/' + chromiumVersion;
+}
+
+// Pepper Flash and the custom user-agent must be registered with Chromium before
+// Electron becomes ready so BrowserViews and content-only popup windows inherit
+// the same environment.
 const rootDir = getRootDir();
 const flashPath = path.join(rootDir, 'Flash', 'pepflashplayer.dll');
 const appIconPath = path.join(rootDir, 'DKFlashBrowser.ico');
@@ -22,6 +41,7 @@ app.commandLine.appendSwitch('ppapi-flash-version', FLASH_VERSION);
 app.commandLine.appendSwitch('allow-outdated-plugins');
 app.commandLine.appendSwitch('disable-component-update');
 app.commandLine.appendSwitch('disable-background-networking');
+app.commandLine.appendSwitch('user-agent', buildBrowserUserAgent());
 
 function normalizeLaunchUrl(value) {
   const input = String(value || '').trim();
