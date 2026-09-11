@@ -9,9 +9,9 @@ function getRootDir() {
 }
 
 const rootDir = getRootDir();
+const userDataPath = path.join(rootDir, 'UserData');
 const logDir = path.join(rootDir, 'Logs');
 const logPath = path.join(logDir, 'browser.log');
-const crashDir = path.join(rootDir, 'CrashDumps');
 
 function writeBootstrapLog(type, message, error) {
   try {
@@ -28,8 +28,11 @@ function writeBootstrapLog(type, message, error) {
 }
 
 try {
-  fs.mkdirSync(crashDir, { recursive: true });
-  app.setPath('crashDumps', crashDir);
+  // Electron 6 does not support app.setPath('crashDumps', ...).
+  // Keep all Crashpad data portable by setting userData before crashReporter starts.
+  fs.mkdirSync(userDataPath, { recursive: true });
+  app.setPath('userData', userDataPath);
+
   crashReporter.start({
     companyName: 'danhk0612',
     productName: 'DK Flash Browser',
@@ -41,7 +44,20 @@ try {
       purpose: 'legacy-flash-browser'
     }
   });
-  writeBootstrapLog('CRASH-REPORTER', 'Crash reporter enabled. dumps=' + crashDir);
+
+  let crashDirectory = '';
+  try {
+    if (typeof crashReporter.getCrashesDirectory === 'function') {
+      crashDirectory = crashReporter.getCrashesDirectory() || '';
+    }
+  } catch (error) {
+    writeBootstrapLog('CRASH-REPORTER', 'Crash reporter started, but crash directory lookup failed', error);
+  }
+
+  writeBootstrapLog(
+    'CRASH-REPORTER',
+    'Crash reporter enabled.' + (crashDirectory ? ' dumps=' + crashDirectory : ' dumps=under portable UserData')
+  );
 } catch (error) {
   writeBootstrapLog('CRASH-REPORTER', 'Failed to initialize crash reporter', error);
 }
