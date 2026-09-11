@@ -245,11 +245,23 @@ function installBrowserHandlers(tab) {
     }
   });
 
+  contents.on('new-window', (event, url, frameName, disposition) => {
+    try {
+      event.preventDefault();
+      const targetUrl = url || 'about:blank';
+      writeLog('NEW-WINDOW', 'Tab ' + tab.id + ' requested ' + targetUrl + ' disposition=' + String(disposition || '') + ' frame=' + String(frameName || ''));
+      createTab(targetUrl, true);
+    } catch (error) {
+      writeLog('NEW-WINDOW', 'Failed to route popup/new-window request for tab ' + tab.id, error);
+    }
+  });
+
   contents.on('context-menu', (_event, params) => {
     try {
       if (contents.isDestroyed()) return;
       const template = [];
       if (params.linkURL) {
+        template.push({ label: '새 탭에서 링크 열기', click: () => createTab(params.linkURL, true) });
         template.push({ label: '링크 다운로드...', click: () => downloadWithPrompt(contents, params.linkURL, params.suggestedFilename) });
         template.push({ label: '링크 주소 복사', click: () => clipboard.writeText(params.linkURL) });
       }
@@ -455,6 +467,8 @@ ipcMain.on('browser:bookmark-context', (_event, url) => {
   if (!mainWindow || mainWindow.isDestroyed() || !url) return;
   try {
     Menu.buildFromTemplate([
+      { label: '새 탭에서 열기', click: () => createTab(url, true) },
+      { type: 'separator' },
       { label: '북마크 삭제', click: () => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:delete-bookmark', url);
       } }
