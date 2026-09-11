@@ -87,6 +87,14 @@
     updateBookmarkButton();
   }
 
+  function ensureActiveTabVisible() {
+    const active = tabList.querySelector('.tab-item.active');
+    if (!active) return;
+    if (typeof active.scrollIntoView === 'function') {
+      active.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }
+
   function renderTabs(state) {
     tabState = state || { activeTabId: null, tabs: [] };
     tabList.textContent = '';
@@ -116,6 +124,9 @@
       item.appendChild(close);
       tabList.appendChild(item);
     });
+
+    tabList.appendChild(newTabButton);
+    window.requestAnimationFrame(ensureActiveTabVisible);
   }
 
   function updateNavigationState(state) {
@@ -139,6 +150,13 @@
   }
 
   newTabButton.addEventListener('click', () => send('browser:new-tab', homeUrl));
+  tabList.addEventListener('wheel', (event) => {
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    if (tabList.scrollWidth <= tabList.clientWidth) return;
+    event.preventDefault();
+    tabList.scrollLeft += event.deltaY;
+  }, { passive: false });
+
   backButton.addEventListener('click', () => send('browser:back'));
   forwardButton.addEventListener('click', () => send('browser:forward'));
   reloadButton.addEventListener('click', () => send('browser:reload'));
@@ -233,7 +251,10 @@
     }
   });
 
-  window.addEventListener('resize', syncBrowserBounds);
+  window.addEventListener('resize', () => {
+    syncBrowserBounds();
+    window.requestAnimationFrame(ensureActiveTabVisible);
+  });
   if (window.ResizeObserver) new ResizeObserver(syncBrowserBounds).observe(browserPlaceholder);
 
   renderBookmarks();
