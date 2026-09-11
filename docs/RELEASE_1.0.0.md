@@ -24,6 +24,16 @@ dist\DKFlashBrowser-win32-ia32\
 dist\DKFlashBrowser-1.0.0-win32-ia32.zip
 ```
 
+### Validation status
+
+Final Windows packaging was run successfully on 2026-09-11.
+
+Confirmed output:
+
+- `dist\DKFlashBrowser-win32-ia32` created;
+- `dist\DKFlashBrowser-1.0.0-win32-ia32.zip` created;
+- packaged version reported as `1.0.0`.
+
 ## Static validation
 
 Run:
@@ -46,6 +56,24 @@ The validator must confirm:
 - `VERSION.txt` matches `resources\app\package.json`;
 - portable user-data redirection is present;
 - the persistent browser partition is present.
+
+### Validation status
+
+PASS on 2026-09-11.
+
+Confirmed by the final Windows package validator:
+
+- `DKFlashBrowser.exe` x86 / `IMAGE_FILE_MACHINE_I386 (0x014C)`;
+- Pepper Flash DLL x86 / `IMAGE_FILE_MACHINE_I386 (0x014C)`;
+- `config.ini` present;
+- portable `UserData` directory present;
+- packaged `main.js` and `package.json` present;
+- `VERSION.txt`, README, license, and third-party notices present;
+- package version metadata matches `1.0.0`;
+- portable userData redirect present;
+- persistent browser session partition present;
+- Flash DLL size confirmed as 17,930,296 bytes;
+- final result: `Static portable validation PASSED.`
 
 ## Runtime smoke test
 
@@ -70,6 +98,8 @@ Verify at minimum:
 - normal and hard reload work;
 - browser closes without an unexpected native crash.
 
+Status: **PENDING final 1.0.0 packaged-runtime confirmation.**
+
 ## Accepted limitations
 
 - `Ctrl + mouse wheel` zoom is not supported in the target Electron 6 + BrowserView runtime.
@@ -80,4 +110,4 @@ Verify at minimum:
 
 ## Release approval
 
-Do not merge T08 or publish/tag `v1.0.0` until the final Windows package and smoke test are accepted.
+Do not merge T08 or publish/tag `v1.0.0` until the final Windows packaged-runtime smoke test is accepted.
