@@ -55,10 +55,14 @@ Status: complete, user-validated, and merged
 
 ## T06 — Configuration finalization
 
-Status: configuration/browser UI behavior user-validated; latest startup-default additions await validation before merge
+Status: complete; user requested progression to T07
 
 - `[Browser] StartUrl=...` controls startup, Home / Alt+Home, and manually created new tabs.
-- Missing or empty `StartUrl` now falls back to `https://software.mydepot.kr/` and is written into `config.ini`.
+- Missing or empty `StartUrl` falls back to `https://html.duckduckgo.com/html` and is written into `config.ini`.
+- Default packaged/example configuration:
+  - `StartUrl=https://html.duckduckgo.com/html`
+  - `Bookmark1=DuckDuckGo|https://html.duckduckgo.com/html`
+  - `Bookmark2=Duck.ai|https://duck.ai/`
 - `[DefaultBookmarks] BookmarkN=Title|URL` seeds root bookmarks only when `UserData\bookmarks.json` does not exist.
 - An existing but empty bookmark file is treated as an intentional user state and is not reseeded.
 - Deleting/resetting the bookmark file causes config defaults to be seeded again on the next launch.
@@ -72,7 +76,7 @@ The user previously reported intermittent full-process exits while using both Fl
 
 Runtime BrowserView `webContents.destroy()` is therefore suppressed during normal use and cleanup is deferred to application/OS shutdown. After this change, the user reported that the forced exits no longer appeared during the tested workflows.
 
-Additional T06 browser UI work now includes:
+Additional T06 browser UI work includes:
 
 - Chrome-like shrinking tab widths with favicon/title behavior;
 - persistent bookmark favicon/address favicon support;
@@ -92,23 +96,25 @@ Diagnostic log tags remain available:
 - `PROCESS-EXIT`
 - existing `RENDERER-CRASH`, `GPU-CRASH`, `MAIN-UNCAUGHT`, `MAIN-REJECTION`
 
-Validation still required before T06 merge:
-
-- normal launch with valid Flash DLL;
-- failure message and no browser page when Flash DLL is missing/corrupt/wrong architecture;
-- missing/empty StartUrl falls back to `https://software.mydepot.kr/`;
-- default bookmarks appear when `bookmarks.json` is absent;
-- deleting all bookmarks without deleting `bookmarks.json` does not recreate defaults after restart;
-- deleting/resetting `bookmarks.json` does recreate config defaults.
+T06 startup-default/Flash preflight runtime checks are carried forward into T07's real-system validation checklist rather than blocking progression.
 
 ## T07 — Real legacy-system validation
 
-- Flash rendering and interaction.
-- Login/session.
-- Audio if used by the solution.
-- Required upload/download behavior if used.
-- Right-click direct download for required SWF/image resources where the page exposes a downloadable URL.
-- New tabs/windows and long-running usage.
+Status: next / active after T06 merge
+
+Validation scope:
+
+- startup preflight with valid Flash DLL;
+- startup block/error with missing/corrupt/wrong-architecture Flash DLL;
+- default homepage and first-run default bookmark behavior;
+- Flash rendering and interaction on the actual legacy system;
+- login/session persistence;
+- audio if used by the solution;
+- required upload/download behavior if used;
+- right-click direct download for required SWF/image resources where the page exposes a downloadable URL;
+- new tabs/windows and long-running usage;
+- repeated open/switch/close tab workflows to watch for native BrowserView crash recurrence;
+- real 32-bit Windows runtime only if a physical/VM environment is available; otherwise record `NOT AVAILABLE`.
 
 ## T08 — Final packaging
 
