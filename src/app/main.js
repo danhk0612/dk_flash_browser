@@ -7,6 +7,7 @@ const { app, BrowserWindow, BrowserView, Menu, dialog, clipboard, ipcMain, sessi
 const FLASH_VERSION = '29.0.0.140';
 const PRODUCT_NAME = 'DK Flash Browser';
 const BROWSER_PARTITION = 'persist:dk-flash-browser';
+const ZOOM_LEVELS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 
 function getRootDir() {
   return process.defaultApp ? path.resolve(__dirname, '..', '..') : path.dirname(process.execPath);
@@ -193,14 +194,81 @@ function getActiveTab() {
   return getTab(activeTabId);
 }
 
-function tabZoomPercent(wc) {
-  if (!wc || wc.isDestroyed()) return 100;
+function actualZoomFactor(wc) {
+  if (!wc || wc.isDestroyed()) return 1;
   try {
     const factor = Number(wc.getZoomFactor());
-    return Math.round((Number.isFinite(factor) && factor > 0 ? factor : 1) * 100);
+    return Number.isFinite(factor) && factor > 0 ? factor : 1;
   } catch (_error) {
-    return 100;
+    return 1;
   }
+}
+
+function tabZoomPercent(wc) {
+  return Math.round(actualZoomFactor(wc) * 100);
+}
+
+function notifyZoomState(wc, factorOverride) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const factor = Number(factorOverride) > 0 ? Number(factorOverride) : actualZoomFactor(wc);
+  mainWindow.webContents.send('browser:zoom-state', {
+    zoomFactor: factor,
+    zoomPercent: Math.round(factor * 100)
+  });
+}
+
+function nearestZoomIndex(value) {
+  let best = 0;
+  let distance = Infinity;
+  ZOOM_LEVELS.forEach((level, index) => {
+    const nextDistance = Math.abs(level - value);
+    if (nextDistance < distance) {
+      best = index;
+      distance = nextDistance;
+    }
+  });
+  return best;
+}
+
+function setContentsZoom(wc, factor) {
+  if (!wc || wc.isDestroyed()) return;
+  const clamped = Math.max(ZOOM_LEVELS[0], Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], Number(factor) || 1));
+  try {
+    wc.setZoomFactor(clamped);
+    notifyZoomState(wc, clamped);
+    setTimeout(() => {
+      if (wc && !wc.isDestroyed()) notifyZoomState(wc);
+    }, 100);
+  } catch (error) {
+    writeLog('ZOOM', 'Failed to set zoom factor', error);
+  }
+}
+
+function changeContentsZoom(wc, direction) {
+  if (!wc || wc.isDestroyed()) return;
+  let index = nearestZoomIndex(actualZoomFactor(wc));
+  index += Number(direction) > 0 ? 1 : -1;
+  index = Math.max(0, Math.min(ZOOM_LEVELS.length - 1, index));
+  setContentsZoom(wc, ZOOM_LEVELS[index]);
+}
+
+function handleZoomShortcut(event, input, wc) {
+  if (!input || !input.control || input.alt) return false;
+  const type = String(input.type || '').toLowerCase();
+  if (type.indexOf('keydown') < 0) return false;
+
+  const key = String(input.key || '').toLowerCase();
+  const code = String(input.code || '').toLowerCase();
+  const zoomIn = key === '+' || key === '=' || key === 'add' || code === 'equal' || code === 'numpadadd';
+  const zoomOut = key === '-' || key === 'subtract' || code === 'minus' || code === 'numpadsubtract';
+  const zoomReset = key === '0' || code === 'digit0' || code === 'numpad0';
+  if (!zoomIn && !zoomOut && !zoomReset) return false;
+
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  writeLog('ZOOM-KEY', 'key=' + key + ' code=' + code + ' shift=' + String(!!input.shift));
+  if (zoomReset) setContentsZoom(wc, 1);
+  else changeContentsZoom(wc, zoomIn ? 1 : -1);
+  return true;
 }
 
 function tabState(tab) {
@@ -247,6 +315,7 @@ function sendBrowserState(tab) {
   const state = tabState(tab);
   updateWindowTitle(state);
   mainWindow.webContents.send('browser:state', state);
+  notifyZoomState(safeWebContents(tab));
 }
 
 function downloadWithPrompt(contents, url, filename) {
@@ -291,6 +360,7 @@ function installBrowserHandlers(tab) {
 
   contents.on('before-input-event', (event, input) => {
     try {
+      if (handleZoomShortcut(event, input, contents)) return;
       if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing) return;
       const key = String(input.key || '').toLowerCase();
       if (input.control && !input.shift && key === 'l') {
@@ -359,14 +429,10 @@ function installBrowserHandlers(tab) {
         template.push({ label: '링크 다운로드...', click: () => downloadWithPrompt(contents, params.linkURL, params.suggestedFilename) });
         template.push({ label: '링크 주소 복사', click: () => clipboard.writeText(params.linkURL) });
       }
-
-      // Pepper Flash owns its native context menu. Do not try to inject Flash
-      // download actions here. Image/media downloads remain available normally.
       if (params.srcURL && params.srcURL !== params.linkURL && params.mediaType !== 'plugin' && !/\.swf(?:$|[?#])/i.test(params.srcURL)) {
         const label = params.mediaType === 'image' ? '이미지 다운로드...' : '미디어 다운로드...';
         template.push({ label, click: () => downloadWithPrompt(contents, params.srcURL, params.suggestedFilename) });
       }
-
       if (template.length) template.push({ type: 'separator' });
       if (params.isEditable) {
         template.push({ role: 'cut', label: '잘라내기' });
@@ -478,6 +544,14 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       preload: path.join(__dirname, 'preload.js')
+    }
+  });
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    try {
+      handleZoomShortcut(event, input, activeContents());
+    } catch (error) {
+      writeLog('ZOOM-KEY', 'Chrome UI zoom shortcut handler failed', error);
     }
   });
 
