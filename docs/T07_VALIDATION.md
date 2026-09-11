@@ -68,10 +68,10 @@ Record PASS / FAIL / NOT USED for each applicable item:
 - Audio works when the legacy application uses audio.
 - File upload works when required.
 - Downloads work when required.
-- Image/media direct URL right-click download works when the page exposes such a URL.
-- If Electron receives Flash as a normal plugin/srcURL context-menu target, `Flash 다운로드...` appears.
-- Pepper Flash's own native right-click menu cannot be extended by the browser. For those pages, right-click elsewhere on the page should offer `페이지 Flash 다운로드...` when an HTML `<embed>`, `<object>`, or `param movie/src` exposes a `.swf` URL.
-- `Ctrl+Shift+S` downloads the first detected page SWF URL, or explains that no direct SWF URL was exposed.
+- Direct image/media URL right-click download works when the page exposes such a URL.
+- Pepper Flash's native right-click menu is not expected to expose DK Flash Browser download commands.
+- `Ctrl+Shift+S` downloads the detected SWF when exactly one candidate exists.
+- When multiple SWF candidates exist, `Ctrl+Shift+S` opens a native selection menu and the selected SWF downloads.
 
 ## D. Tabs / popup / zoom behavior
 
@@ -83,7 +83,8 @@ Record PASS / FAIL / NOT USED for each applicable item:
 - Confirm address/title/favicons remain synchronized with the active tab.
 - Confirm the native window title follows the active page as `페이지 제목 - DK Flash Browser`.
 - Confirm each tab starts at 100% zoom.
-- Confirm `Ctrl + mouse wheel`, `Ctrl + +`, `Ctrl + -`, and `Ctrl + 0` adjust/reset zoom.
+- Confirm native `Ctrl + +`, `Ctrl + -`, and `Ctrl + 0` work even when Flash owns keyboard focus.
+- Confirm `Ctrl + mouse wheel` works on ordinary HTML page content; Pepper Flash may consume wheel input before page JavaScript receives it.
 - Confirm the toolbar indicator reflects the active tab zoom (for example `100%`, `125%`).
 - Confirm clicking the zoom indicator resets the active tab to 100%.
 - Confirm zoom remains independent when switching between tabs.
