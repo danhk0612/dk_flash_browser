@@ -10,9 +10,10 @@
   }
 
   function focusBrowserChrome() {
-    // window.focus() alone is not reliable with Electron 6 BrowserView. Ask the
-    // main process to focus the browser chrome webContents explicitly so the
-    // next page click produces a real BrowserView focus transition.
+    // Ask the main process to focus the browser chrome webContents explicitly.
+    // Do not use window blur as a close trigger: opening/editing bookmark UI can
+    // legitimately move focus inside the chrome renderer and would otherwise
+    // close the newly opened panel immediately.
     try { window.dkBrowser.send('browser:focus-chrome'); } catch (_error) {}
     try { window.focus(); } catch (_error) {}
   }
@@ -69,6 +70,8 @@
     const context = visible('.bookmark-context-panel');
     const editor = visible('.bookmark-editor-panel');
 
+    // Bookmark bar and every bookmark-related panel are one interaction region.
+    // Clicking anywhere inside this region must not dismiss the UI.
     if (bookmarkBar.contains(event.target) ||
         (dropdown && dropdown.contains(event.target)) ||
         (context && context.contains(event.target)) ||
@@ -86,16 +89,12 @@
     if (closeTransientPanels()) event.preventDefault();
   }, true);
 
-  // When focus leaves the chrome renderer for the BrowserView, close any open
-  // bookmark UI. This supplements the main-process BrowserView focus signal.
-  window.addEventListener('blur', function () {
-    closeTransientPanels();
-  }, true);
-
   function handlePageFocus() {
     closeTransientPanels();
   }
 
+  // Actual BrowserView page interaction is forwarded by the main process.
+  // This is the only cross-surface close trigger; chrome blur itself is not.
   window.dkBrowser.on('browser:close-bookmark-menus', handlePageFocus);
   window.dkBrowser.on('browser:page-focus', handlePageFocus);
 })();
