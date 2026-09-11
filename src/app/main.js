@@ -9,42 +9,55 @@ const PRODUCT_NAME = 'DK Flash Browser';
 const BROWSER_PARTITION = 'persist:dk-flash-browser';
 
 function getRootDir() {
-  if (process.defaultApp) {
-    return path.resolve(__dirname, '..', '..');
-  }
-
-  return path.dirname(process.execPath);
+  return process.defaultApp ? path.resolve(__dirname, '..', '..') : path.dirname(process.execPath);
 }
 
-function readBrowserConfig(configPath) {
-  const config = { startUrl: 'about:blank' };
+const rootDir = getRootDir();
+const flashPath = path.join(rootDir, 'Flash', 'pepflashplayer.dll');
+const configPath = path.join(rootDir, 'config.ini');
+const userDataPath = path.join(rootDir, 'UserData');
+const logDir = path.join(rootDir, 'Logs');
+const logPath = path.join(logDir, 'browser.log');
 
-  if (!fs.existsSync(configPath)) {
-    return config;
+function writeLog(type, message, error) {
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+    const details = error && error.stack ? error.stack : (error ? String(error) : '');
+    const line = '[' + new Date().toISOString() + '] [' + type + '] ' + message + (details ? '\n' + details : '') + '\n';
+    fs.appendFileSync(logPath, line, 'utf8');
+  } catch (_error) {
+    // Logging must never crash the browser.
   }
+}
 
-  const lines = fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
+process.on('uncaughtException', (error) => {
+  writeLog('MAIN-UNCAUGHT', 'Uncaught exception in main process', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  writeLog('MAIN-REJECTION', 'Unhandled promise rejection in main process', reason);
+});
+
+function readBrowserConfig(filePath) {
+  const config = { startUrl: 'about:blank' };
+  if (!fs.existsSync(filePath)) return config;
+
+  const lines = fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
   let section = '';
-
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (!line || line.startsWith(';') || line.startsWith('#')) continue;
-
     if (line.startsWith('[') && line.endsWith(']')) {
       section = line.slice(1, -1).trim().toLowerCase();
       continue;
     }
-
     if (section !== 'browser') continue;
-
     const separator = line.indexOf('=');
     if (separator < 0) continue;
-
     const key = line.slice(0, separator).trim().toLowerCase();
     const value = line.slice(separator + 1).trim();
     if (key === 'starturl' && value) config.startUrl = value;
   }
-
   return config;
 }
 
@@ -66,10 +79,11 @@ function suggestedFilename(url, fallback) {
   return 'download';
 }
 
-const rootDir = getRootDir();
-const flashPath = path.join(rootDir, 'Flash', 'pepflashplayer.dll');
-const configPath = path.join(rootDir, 'config.ini');
-const userDataPath = path.join(rootDir, 'UserData');
+function safeWebContents(tab) {
+  if (!tab || !tab.view || !tab.view.webContents) return null;
+  const contents = tab.view.webContents;
+  return contents.isDestroyed() ? null : contents;
+}
 
 app.commandLine.appendSwitch('ppapi-flash-path', flashPath);
 app.commandLine.appendSwitch('ppapi-flash-version', FLASH_VERSION);
@@ -80,113 +94,277 @@ app.setPath('userData', userDataPath);
 app.setName(PRODUCT_NAME);
 
 let mainWindow = null;
-let browserView = null;
 let browserConfig = null;
+let browserBounds = { x: 0, y: 0, width: 1, height: 1 };
+let tabs = [];
+let activeTabId = null;
+let nextTabId = 1;
 
-function sendBrowserState() {
-  if (!mainWindow || mainWindow.isDestroyed() || !browserView) return;
-  const wc = browserView.webContents;
-  mainWindow.webContents.send('browser:state', {
-    url: wc.getURL() || '',
-    title: wc.getTitle() || '',
-    canGoBack: wc.canGoBack(),
-    canGoForward: wc.canGoForward(),
-    isLoading: wc.isLoading()
+function getTab(id) {
+  return tabs.find((tab) => tab.id === id) || null;
+}
+
+function getActiveTab() {
+  return getTab(activeTabId);
+}
+
+function tabState(tab) {
+  const wc = safeWebContents(tab);
+  if (!wc) {
+    return {
+      id: tab.id,
+      title: tab.crashed ? '탭 오류' : '새 탭',
+      url: tab.lastUrl || '',
+      canGoBack: false,
+      canGoForward: false,
+      isLoading: false,
+      crashed: !!tab.crashed
+    };
+  }
+
+  return {
+    id: tab.id,
+    title: tab.crashed ? '탭 오류' : (wc.getTitle() || '새 탭'),
+    url: wc.getURL() || tab.lastUrl || '',
+    canGoBack: !tab.crashed && wc.canGoBack(),
+    canGoForward: !tab.crashed && wc.canGoForward(),
+    isLoading: !tab.crashed && wc.isLoading(),
+    crashed: !!tab.crashed
+  };
+}
+
+function sendTabs() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('browser:tabs', {
+    activeTabId,
+    tabs: tabs.map(tabState)
   });
+}
+
+function sendBrowserState(tab) {
+  if (!mainWindow || mainWindow.isDestroyed() || !tab || tab.id !== activeTabId) return;
+  mainWindow.webContents.send('browser:state', tabState(tab));
 }
 
 function downloadWithPrompt(contents, url, filename) {
-  if (!url) return;
-  const savePath = dialog.showSaveDialogSync(mainWindow || undefined, {
-    title: '다른 이름으로 저장',
-    defaultPath: path.join(app.getPath('downloads'), suggestedFilename(url, filename))
-  });
-  if (!savePath) return;
+  if (!url || !contents || contents.isDestroyed()) return;
 
-  contents.session.once('will-download', (_event, item) => item.setSavePath(savePath));
-  contents.downloadURL(url);
+  try {
+    const savePath = dialog.showSaveDialogSync(mainWindow || undefined, {
+      title: '다른 이름으로 저장',
+      defaultPath: path.join(app.getPath('downloads'), suggestedFilename(url, filename))
+    });
+    if (!savePath || contents.isDestroyed()) return;
+
+    contents.session.once('will-download', (_event, item) => {
+      try {
+        item.setSavePath(savePath);
+      } catch (error) {
+        writeLog('DOWNLOAD', 'Failed to set download path for ' + url, error);
+      }
+    });
+    contents.downloadURL(url);
+  } catch (error) {
+    writeLog('DOWNLOAD', 'Failed to start download for ' + url, error);
+  }
 }
 
-function installBrowserHandlers(contents) {
-  contents.on('before-input-event', (event, input) => {
-    if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing) return;
-    const key = String(input.key || '').toLowerCase();
+function cycleTab(direction) {
+  if (tabs.length < 2) return;
+  const index = tabs.findIndex((tab) => tab.id === activeTabId);
+  const next = (index + direction + tabs.length) % tabs.length;
+  activateTab(tabs[next].id, true);
+}
 
-    if (input.control && !input.shift && key === 'l') {
-      event.preventDefault();
-      mainWindow.webContents.send('browser:focus-address');
-      return;
-    }
-    if (input.control && !input.shift && key === 'd') {
-      event.preventDefault();
-      mainWindow.webContents.send('browser:toggle-bookmark');
-      return;
-    }
-    if ((input.control && input.shift && key === 'r') || (input.control && key === 'f5')) {
-      event.preventDefault();
-      contents.reloadIgnoringCache();
-      return;
-    }
-    if ((input.control && !input.shift && key === 'r') || key === 'f5') {
-      event.preventDefault();
-      contents.reload();
-      return;
-    }
-    if (input.alt && key === 'home') {
-      event.preventDefault();
-      contents.loadURL(browserConfig.startUrl).catch(() => {});
+function handleTabCrash(tab, killed) {
+  const wc = safeWebContents(tab);
+  tab.crashed = true;
+  tab.lastUrl = wc ? (wc.getURL() || tab.lastUrl || '') : (tab.lastUrl || '');
+  writeLog('RENDERER-CRASH', 'Tab ' + tab.id + ' renderer crashed. killed=' + String(!!killed) + ' url=' + tab.lastUrl);
+
+  sendTabs();
+  sendBrowserState(tab);
+
+  if (tab.id === activeTabId && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('browser:tab-crashed', {
+      id: tab.id,
+      url: tab.lastUrl
+    });
+  }
+}
+
+function installBrowserHandlers(tab) {
+  const contents = tab.view.webContents;
+
+  contents.on('before-input-event', (event, input) => {
+    try {
+      if (input.type !== 'keyDown' || input.isAutoRepeat || input.isComposing) return;
+      const key = String(input.key || '').toLowerCase();
+
+      if (input.control && !input.shift && key === 'l') {
+        event.preventDefault();
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:focus-address');
+        return;
+      }
+      if (input.control && !input.shift && key === 'd') {
+        event.preventDefault();
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:toggle-bookmark');
+        return;
+      }
+      if (input.control && !input.shift && key === 't') {
+        event.preventDefault();
+        createTab(browserConfig.startUrl, true);
+        return;
+      }
+      if (input.control && !input.shift && key === 'w') {
+        event.preventDefault();
+        closeTab(tab.id);
+        return;
+      }
+      if (input.control && key === 'tab') {
+        event.preventDefault();
+        cycleTab(input.shift ? -1 : 1);
+        return;
+      }
+      if ((input.control && input.shift && key === 'r') || (input.control && key === 'f5')) {
+        event.preventDefault();
+        if (!contents.isDestroyed()) contents.reloadIgnoringCache();
+        return;
+      }
+      if ((input.control && !input.shift && key === 'r') || key === 'f5') {
+        event.preventDefault();
+        if (!contents.isDestroyed()) contents.reload();
+        return;
+      }
+      if (input.alt && key === 'home') {
+        event.preventDefault();
+        if (!contents.isDestroyed()) contents.loadURL(browserConfig.startUrl).catch((error) => writeLog('NAVIGATION', 'Alt+Home failed', error));
+      }
+    } catch (error) {
+      writeLog('INPUT-HANDLER', 'Browser shortcut handler failed for tab ' + tab.id, error);
     }
   });
 
   contents.on('context-menu', (_event, params) => {
-    const template = [];
-
-    if (params.linkURL) {
-      template.push({ label: '링크 다운로드...', click: () => downloadWithPrompt(contents, params.linkURL, params.suggestedFilename) });
-      template.push({ label: '링크 주소 복사', click: () => clipboard.writeText(params.linkURL) });
+    try {
+      if (contents.isDestroyed()) return;
+      const template = [];
+      if (params.linkURL) {
+        template.push({ label: '링크 다운로드...', click: () => downloadWithPrompt(contents, params.linkURL, params.suggestedFilename) });
+        template.push({ label: '링크 주소 복사', click: () => clipboard.writeText(params.linkURL) });
+      }
+      if (params.srcURL && params.srcURL !== params.linkURL) {
+        const label = params.mediaType === 'image' ? '이미지 다운로드...' : '미디어 다운로드...';
+        template.push({ label, click: () => downloadWithPrompt(contents, params.srcURL, params.suggestedFilename) });
+      }
+      if (template.length) template.push({ type: 'separator' });
+      if (params.isEditable) {
+        template.push({ role: 'cut', label: '잘라내기' });
+        template.push({ role: 'copy', label: '복사' });
+        template.push({ role: 'paste', label: '붙여넣기' });
+        template.push({ role: 'selectall', label: '모두 선택' });
+      } else if (params.selectionText) {
+        template.push({ role: 'copy', label: '복사' });
+      }
+      if (template.length && mainWindow && !mainWindow.isDestroyed()) {
+        Menu.buildFromTemplate(template).popup({ window: mainWindow });
+      }
+    } catch (error) {
+      writeLog('CONTEXT-MENU', 'Context menu failed for tab ' + tab.id, error);
     }
-
-    if (params.srcURL && params.srcURL !== params.linkURL) {
-      const label = params.mediaType === 'image' ? '이미지 다운로드...' : '미디어 다운로드...';
-      template.push({ label, click: () => downloadWithPrompt(contents, params.srcURL, params.suggestedFilename) });
-    }
-
-    if (template.length) template.push({ type: 'separator' });
-
-    if (params.isEditable) {
-      template.push({ role: 'cut', label: '잘라내기' });
-      template.push({ role: 'copy', label: '복사' });
-      template.push({ role: 'paste', label: '붙여넣기' });
-      template.push({ role: 'selectall', label: '모두 선택' });
-    } else if (params.selectionText) {
-      template.push({ role: 'copy', label: '복사' });
-    }
-
-    if (template.length) Menu.buildFromTemplate(template).popup({ window: mainWindow || undefined });
   });
 
+  contents.on('crashed', (_event, killed) => handleTabCrash(tab, killed));
+  contents.on('unresponsive', () => writeLog('RENDERER-UNRESPONSIVE', 'Tab ' + tab.id + ' became unresponsive. url=' + (contents.getURL() || '')));
+  contents.on('responsive', () => writeLog('RENDERER-RESPONSIVE', 'Tab ' + tab.id + ' became responsive again.'));
+
   ['did-navigate', 'did-navigate-in-page', 'did-start-loading', 'did-stop-loading', 'page-title-updated', 'did-fail-load'].forEach((name) => {
-    contents.on(name, sendBrowserState);
+    contents.on(name, () => {
+      try {
+        if (!contents.isDestroyed()) {
+          tab.crashed = false;
+          tab.lastUrl = contents.getURL() || tab.lastUrl || '';
+        }
+        sendBrowserState(tab);
+        sendTabs();
+      } catch (error) {
+        writeLog('STATE', 'State update failed after ' + name + ' for tab ' + tab.id, error);
+      }
+    });
   });
 }
 
-function createBrowserView() {
-  browserView = new BrowserView({
-    webPreferences: {
-      nodeIntegration: false,
-      plugins: true,
-      partition: BROWSER_PARTITION
-    }
-  });
-  mainWindow.setBrowserView(browserView);
-  installBrowserHandlers(browserView.webContents);
-  browserView.webContents.loadURL(browserConfig.startUrl).catch(() => {});
-  mainWindow.webContents.send('browser:request-bounds');
+function createTab(url, makeActive) {
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+
+  const tab = {
+    id: nextTabId++,
+    crashed: false,
+    lastUrl: url || browserConfig.startUrl,
+    view: new BrowserView({
+      webPreferences: {
+        nodeIntegration: false,
+        plugins: true,
+        partition: BROWSER_PARTITION
+      }
+    })
+  };
+
+  tabs.push(tab);
+  installBrowserHandlers(tab);
+  tab.view.setBounds(browserBounds);
+  tab.view.webContents.loadURL(tab.lastUrl).catch((error) => writeLog('NAVIGATION', 'Initial tab load failed: ' + tab.lastUrl, error));
+  if (makeActive || activeTabId === null) activateTab(tab.id, false);
+  sendTabs();
+  return tab;
+}
+
+function activateTab(id, focusPage) {
+  const tab = getTab(id);
+  if (!tab || !mainWindow || mainWindow.isDestroyed()) return;
+
+  try {
+    activeTabId = id;
+    mainWindow.setBrowserView(tab.view);
+    tab.view.setBounds(browserBounds);
+    sendTabs();
+    sendBrowserState(tab);
+    const wc = safeWebContents(tab);
+    if (focusPage && wc) wc.focus();
+  } catch (error) {
+    writeLog('TAB-ACTIVATE', 'Failed to activate tab ' + id, error);
+  }
+}
+
+function closeTab(id) {
+  const index = tabs.findIndex((tab) => tab.id === id);
+  if (index < 0) return;
+  const tab = tabs[index];
+  const wasActive = tab.id === activeTabId;
+  tabs.splice(index, 1);
+
+  try {
+    const wc = safeWebContents(tab);
+    if (wc) wc.destroy();
+  } catch (error) {
+    writeLog('TAB-CLOSE', 'Failed to destroy tab ' + id, error);
+  }
+
+  if (!tabs.length) {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+    return;
+  }
+
+  if (wasActive) {
+    const nextIndex = Math.min(index, tabs.length - 1);
+    activateTab(tabs[nextIndex].id, true);
+  } else {
+    sendTabs();
+  }
 }
 
 function createWindow() {
   browserConfig = readBrowserConfig(configPath);
-
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -200,53 +378,99 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'browser.html'), {
     query: { startUrl: browserConfig.startUrl }
-  });
+  }).catch((error) => writeLog('UI', 'Failed to load browser UI', error));
 
   mainWindow.webContents.once('did-finish-load', () => {
-    createBrowserView();
-    sendBrowserState();
+    createTab(browserConfig.startUrl, true);
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:request-bounds');
   });
 
   mainWindow.on('closed', () => {
-    browserView = null;
+    tabs.forEach((tab) => {
+      try {
+        const wc = safeWebContents(tab);
+        if (wc) wc.destroy();
+      } catch (error) {
+        writeLog('SHUTDOWN', 'Failed to destroy tab ' + tab.id + ' during shutdown', error);
+      }
+    });
+    tabs = [];
+    activeTabId = null;
     mainWindow = null;
   });
 }
 
-ipcMain.on('browser:bounds', (_event, bounds) => {
-  if (browserView) browserView.setBounds(normalizeBounds(bounds));
-});
+function activeContents() {
+  return safeWebContents(getActiveTab());
+}
 
+ipcMain.on('browser:bounds', (_event, bounds) => {
+  browserBounds = normalizeBounds(bounds);
+  const tab = getActiveTab();
+  if (tab) {
+    try {
+      tab.view.setBounds(browserBounds);
+    } catch (error) {
+      writeLog('BOUNDS', 'Failed to set BrowserView bounds', error);
+    }
+  }
+});
 ipcMain.on('browser:navigate', (_event, url) => {
-  if (browserView && url) browserView.webContents.loadURL(url).catch(() => {});
+  const wc = activeContents();
+  const tab = getActiveTab();
+  if (wc && url) {
+    if (tab) tab.lastUrl = url;
+    wc.loadURL(url).catch((error) => writeLog('NAVIGATION', 'Navigation failed: ' + url, error));
+  }
 });
 ipcMain.on('browser:back', () => {
-  if (browserView && browserView.webContents.canGoBack()) browserView.webContents.goBack();
+  const wc = activeContents();
+  if (wc && wc.canGoBack()) wc.goBack();
 });
 ipcMain.on('browser:forward', () => {
-  if (browserView && browserView.webContents.canGoForward()) browserView.webContents.goForward();
+  const wc = activeContents();
+  if (wc && wc.canGoForward()) wc.goForward();
 });
 ipcMain.on('browser:reload', () => {
-  if (browserView) browserView.webContents.reload();
+  const wc = activeContents();
+  if (wc) wc.reload();
 });
 ipcMain.on('browser:hard-reload', () => {
-  if (browserView) browserView.webContents.reloadIgnoringCache();
+  const wc = activeContents();
+  if (wc) wc.reloadIgnoringCache();
 });
 ipcMain.on('browser:home', () => {
-  if (browserView) browserView.webContents.loadURL(browserConfig.startUrl).catch(() => {});
+  const wc = activeContents();
+  if (wc) wc.loadURL(browserConfig.startUrl).catch((error) => writeLog('NAVIGATION', 'Home navigation failed', error));
 });
 ipcMain.on('browser:focus-page', () => {
-  if (browserView) browserView.webContents.focus();
+  const wc = activeContents();
+  if (wc) wc.focus();
 });
+ipcMain.on('browser:new-tab', (_event, url) => createTab(url || browserConfig.startUrl, true));
+ipcMain.on('browser:switch-tab', (_event, id) => activateTab(Number(id), true));
+ipcMain.on('browser:close-tab', (_event, id) => closeTab(Number(id)));
+ipcMain.on('browser:cycle-tab', (_event, direction) => cycleTab(Number(direction) < 0 ? -1 : 1));
 ipcMain.on('browser:bookmark-context', (_event, url) => {
   if (!mainWindow || mainWindow.isDestroyed() || !url) return;
-  Menu.buildFromTemplate([
-    {
-      label: '북마크 삭제',
-      click: () => mainWindow.webContents.send('browser:delete-bookmark', url)
-    }
-  ]).popup({ window: mainWindow });
+  try {
+    Menu.buildFromTemplate([
+      { label: '북마크 삭제', click: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('browser:delete-bookmark', url);
+      } }
+    ]).popup({ window: mainWindow });
+  } catch (error) {
+    writeLog('BOOKMARK-MENU', 'Bookmark context menu failed', error);
+  }
 });
 
-app.on('ready', createWindow);
+app.on('gpu-process-crashed', (_event, killed) => {
+  writeLog('GPU-CRASH', 'GPU process crashed. killed=' + String(!!killed));
+});
+
+app.on('ready', () => {
+  writeLog('START', PRODUCT_NAME + ' starting. Electron=' + process.versions.electron + ' Chromium=' + process.versions.chrome);
+  createWindow();
+});
+app.on('before-quit', () => writeLog('STOP', PRODUCT_NAME + ' exiting.'));
 app.on('window-all-closed', () => app.quit());

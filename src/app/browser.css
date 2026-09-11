@@ -9,14 +9,8 @@ body {
   color: #202124;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-button,
-input {
-  font: inherit;
-}
+* { box-sizing: border-box; }
+button, input { font: inherit; }
 
 .browser-shell {
   display: flex;
@@ -24,6 +18,77 @@ input {
   width: 100%;
   height: 100%;
 }
+
+.tab-strip {
+  display: flex;
+  flex: 0 0 34px;
+  align-items: end;
+  min-height: 34px;
+  padding: 3px 6px 0;
+  border-bottom: 1px solid #cfcfcf;
+  background: #dedede;
+}
+
+.tab-list {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 31px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tab-item {
+  display: flex;
+  flex: 0 1 220px;
+  align-items: center;
+  min-width: 110px;
+  max-width: 220px;
+  height: 31px;
+  margin-right: 2px;
+  padding: 0 5px 0 10px;
+  border: 1px solid #c8c8c8;
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  background: #ececec;
+  cursor: default;
+}
+
+.tab-item.active { background: #ffffff; }
+.tab-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.tab-close {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 20px;
+}
+.tab-close:hover { background: #d7d7d7; }
+.new-tab-button {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 28px;
+  margin: 0 0 3px 3px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 20px;
+}
+.new-tab-button:hover { background: #d0d0d0; }
 
 .toolbar {
   display: flex;
@@ -48,26 +113,10 @@ input {
   font-size: 18px;
   line-height: 30px;
 }
-
-.nav-button:hover:not(:disabled) {
-  border-color: #c4c4c4;
-  background: #dddddd;
-}
-
-.nav-button:disabled {
-  opacity: 0.38;
-  cursor: default;
-}
-
-.hard-reload {
-  min-width: 39px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.bookmark-toggle {
-  font-size: 20px;
-}
+.nav-button:hover:not(:disabled) { border-color: #c4c4c4; background: #dddddd; }
+.nav-button:disabled { opacity: 0.38; cursor: default; }
+.hard-reload { min-width: 39px; font-size: 15px; font-weight: 600; }
+.bookmark-toggle { font-size: 20px; }
 
 .address-input {
   flex: 1 1 auto;
@@ -83,10 +132,7 @@ input {
   -webkit-text-fill-color: #202124;
   font-size: 14px;
 }
-
-.address-input:focus {
-  border-color: #777777;
-}
+.address-input:focus { border-color: #777777; }
 
 .bookmark-bar {
   display: flex;
@@ -117,14 +163,5 @@ input {
   white-space: nowrap;
   font-size: 12px;
 }
-
-.bookmark-item:hover {
-  border-color: #d0d0d0;
-  background: #e9e9e9;
-}
-
-.browser-view {
-  flex: 1 1 auto;
-  width: 100%;
-  min-height: 0;
-}
+.bookmark-item:hover { border-color: #d0d0d0; background: #e9e9e9; }
+.browser-view { flex: 1 1 auto; width: 100%; min-height: 0; }
