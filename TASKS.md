@@ -55,7 +55,7 @@ Status: complete, user-validated, and merged
 
 ## T06 — Configuration finalization
 
-Status: configuration behavior validated; merge is temporarily blocked by browser-process crash investigation
+Status: configuration behavior validated; merge is blocked by native Electron 6 browser-process crash investigation
 
 - External configuration contract is intentionally minimal:
   - `[Browser] StartUrl=...`
@@ -71,20 +71,22 @@ The user reported intermittent full-process exits while:
 - opening tabs / pressing Home on Naver Cafe;
 - navigating between other Naver pages.
 
-The exact action immediately before exit is not reliably reproducible. Because both Flash and ordinary modern pages can trigger it, T06 must not be merged as final until the browser-level crash is characterized.
+Crash Reporter was corrected for Electron 6 and two native Crashpad dumps were captured from actual forced exits.
 
-Added diagnostic hardening:
+Dump findings:
 
-- application now starts through `src/app/bootstrap.js`;
-- Electron Crash Reporter is initialized before browser renderers are created;
-- native crash dumps are stored locally under `CrashDumps/`;
-- Electron 6 `renderer-process-crashed` events are logged globally;
-- GPU crashes and main-process exit codes are logged;
-- existing `Logs/browser.log` diagnostics remain active.
+- both dumps fail with Windows exception `0xC0000005` (access violation, read);
+- both attempt to read address `0x00000008`, consistent with a null-object member dereference;
+- both crash inside `DKFlashBrowser.exe` at the same module-relative offset `0x0189A4F6`;
+- dump command lines contain no renderer/GPU `--type=` switch, so the Electron main/browser process is crashing, not only a renderer or Pepper Flash child process;
+- the identical native crash location across unrelated Flash/Naver workflows points to a browser-shell/runtime lifecycle bug rather than one site.
 
-Relevant log tags:
+Electron has known Windows native crashes in the Electron 5-7 generation when BrowserView destruction overlaps native layout/resize work. Because DK Flash Browser uses BrowserViews as tabs, runtime explicit BrowserView WebContents destruction is now suppressed in `bootstrap.js`; closed BrowserView cleanup is deferred to application/OS shutdown. This intentionally favors stability over immediate memory reclamation.
+
+Diagnostic log tags:
 
 - `CRASH-REPORTER`
+- `BROWSERVIEW-LIFECYCLE`
 - `RENDERER-PROCESS-CRASHED`
 - `GPU-PROCESS-CRASHED`
 - `PROCESS-EXIT`
@@ -93,9 +95,10 @@ Relevant log tags:
 Next validation:
 
 - rebuild the packaged browser from the latest T06 branch;
-- use the Flash site and ordinary external pages normally until either a crash occurs or reasonable use remains stable;
-- if a full exit occurs, preserve `Logs/browser.log` and the contents of `CrashDumps/`;
-- do not require an exact click sequence if it cannot be determined.
+- use the same Flash and normal browsing workflows that previously produced forced exits; exact reproduction steps are not required;
+- open/switch/close several tabs during normal use;
+- if a full exit occurs again, preserve `Logs/browser.log` and the newest Crashpad `.dmp` files;
+- if the dump still crashes at `DKFlashBrowser.exe+0x0189A4F6`, next stabilization work should restructure BrowserView attach/switch handling rather than add site-specific workarounds.
 
 ## T07 — Real legacy-system validation
 
