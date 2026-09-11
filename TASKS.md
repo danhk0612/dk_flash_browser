@@ -32,7 +32,7 @@ Status: complete, validated, and merged
 
 ## T03 — Tabs
 
-Status: implementation complete; awaiting Windows validation
+Status: complete, user-accepted, and merged
 
 - One independent `BrowserView` per tab.
 - All tabs share `persist:dk-flash-browser` cookies/storage/session.
@@ -43,28 +43,31 @@ Status: implementation complete; awaiting Windows validation
 - Ctrl+T: new tab.
 - Ctrl+W: close active tab; closing the final tab closes the browser window.
 - Ctrl+Tab / Ctrl+Shift+Tab: cycle tabs.
-
-Windows validation before merge:
-
-- Create 3+ tabs and switch between them repeatedly.
-- Confirm each tab preserves its own URL/history/page state.
-- Confirm address/title/back/forward state changes with the active tab.
-- Confirm Home, normal reload and hard reload act only on the active tab.
-- Confirm Flash works in multiple tabs.
-- Confirm legacy HTML/IME inputs remain stable in each tab.
-- Confirm login/session is shared between tabs.
-- Confirm bookmarks are shared browser-wide and open in the active tab.
-- Confirm Ctrl+T, Ctrl+W, Ctrl+Tab and Ctrl+Shift+Tab work while the page has focus.
-- Confirm closing the active tab selects the adjacent remaining tab.
-- Confirm final-tab close exits the browser window.
-- Confirm packaged x86 build behaves the same as development run.
+- Runtime stability logging/guards added for renderer/GPU/main-process failures.
+- External modern-site crash reproduction was explicitly deferred by the user; diagnostics remain available under `Logs/browser.log`.
 
 ## T04 — Legacy popup / new-window behavior
 
-- `target="_blank"`.
-- `window.open()`.
-- Decide/open required requests as DK Flash Browser tab or managed browser window.
-- Preserve shared login/session state.
+Status: implementation complete; awaiting Windows validation
+
+- Intercept legacy Chromium/Electron `new-window` requests from each tab.
+- Route `target="_blank"` and `window.open()` requests into a DK Flash Browser tab instead of an unmanaged Electron window.
+- Preserve the same `persist:dk-flash-browser` session, cookies and login state in routed tabs.
+- Page link context menu includes `새 탭에서 링크 열기`.
+- Bookmark context menu includes `새 탭에서 열기` and `북마크 삭제`.
+- Log routed requests with the `NEW-WINDOW` tag in `Logs/browser.log`.
+
+Windows validation before merge:
+
+- Click a normal `target="_blank"` link and confirm it opens as a DK Flash Browser tab.
+- Trigger a legacy `window.open()` popup and confirm it opens as a DK Flash Browser tab.
+- Confirm the original tab remains intact after the new tab opens.
+- Confirm login/session state is shared in the routed tab.
+- Confirm Flash content works in a routed tab where applicable.
+- Confirm link right-click -> `새 탭에서 링크 열기`.
+- Confirm bookmark right-click -> `새 탭에서 열기` and `북마크 삭제`.
+- Confirm input, Home, navigation and reload behavior remain stable after popup routing.
+- If a legacy popup depends on `window.opener` or a returned popup handle and behaves differently, record the exact workflow before merge so it can be handled explicitly.
 
 ## T05 — Portable runtime validation
 
