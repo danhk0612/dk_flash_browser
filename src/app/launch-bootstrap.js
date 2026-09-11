@@ -1,7 +1,10 @@
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
-const { app, BrowserWindow, ipcMain } = require('electron');
+const os = require('os');
+const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const appManifest = require('./package.json');
 
 const FLASH_VERSION = '29.0.0.140';
 const BROWSER_PARTITION = 'persist:dk-flash-browser';
@@ -11,17 +14,67 @@ function getRootDir() {
   return process.defaultApp ? path.resolve(__dirname, '..', '..') : path.dirname(process.execPath);
 }
 
-// Pepper Flash must be registered with Chromium before Electron becomes ready.
-// Keep this in the earliest application entry point so both development and
-// packaged/public-release launches use the same user-supplied DLL path.
+function buildBrowserUserAgent() {
+  const releaseParts = String(os.release() || '10.0').split('.');
+  const windowsVersion = (releaseParts[0] || '10') + '.' + (releaseParts[1] || '0');
+  const wow64 = process.arch === 'ia32' && !!process.env.PROCESSOR_ARCHITEW6432;
+  const platformToken = 'Windows NT ' + windowsVersion + (wow64 ? '; WOW64' : '');
+  const chromiumVersion = String(process.versions.chrome || '76.0.3809.146');
+  const appVersion = String(appManifest.version || '1.0.0');
+
+  // Keep the Chrome token for legacy site compatibility while appending explicit
+  // DK Flash Browser / Chromium identity tokens. Product tokens intentionally do
+  // not contain spaces because many user-agent parsers expect token/version form.
+  return 'Mozilla/5.0 (' + platformToken + ') ' +
+    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'Chrome/' + chromiumVersion + ' Safari/537.36 ' +
+    'DKFlashBrowser/' + appVersion + ' Chromium/' + chromiumVersion;
+}
+
+// Pepper Flash and the custom user-agent must be registered with Chromium before
+// Electron becomes ready so BrowserViews and content-only popup windows inherit
+// the same environment.
 const rootDir = getRootDir();
 const flashPath = path.join(rootDir, 'Flash', 'pepflashplayer.dll');
 const appIconPath = path.join(rootDir, 'DKFlashBrowser.ico');
+const preferencesPath = path.join(rootDir, 'UserData', 'browser-preferences.json');
 app.commandLine.appendSwitch('ppapi-flash-path', flashPath);
 app.commandLine.appendSwitch('ppapi-flash-version', FLASH_VERSION);
 app.commandLine.appendSwitch('allow-outdated-plugins');
 app.commandLine.appendSwitch('disable-component-update');
 app.commandLine.appendSwitch('disable-background-networking');
+app.commandLine.appendSwitch('user-agent', buildBrowserUserAgent());
+
+function loadPopupRoutingPreference() {
+  try {
+    if (!fs.existsSync(preferencesPath)) return false;
+    const parsed = JSON.parse(fs.readFileSync(preferencesPath, 'utf8'));
+    return !!(parsed && parsed.forcePopupToTab);
+  } catch (_error) {
+    return false;
+  }
+}
+
+function savePopupRoutingPreference(enabled) {
+  try {
+    let parsed = {};
+    if (fs.existsSync(preferencesPath)) {
+      try { parsed = JSON.parse(fs.readFileSync(preferencesPath, 'utf8')) || {}; } catch (_error) { parsed = {}; }
+    }
+    parsed.forcePopupToTab = !!enabled;
+    fs.mkdirSync(path.dirname(preferencesPath), { recursive: true });
+    const tempPath = preferencesPath + '.tmp';
+    fs.writeFileSync(tempPath, JSON.stringify(parsed, null, 2), 'utf8');
+    if (fs.existsSync(preferencesPath)) fs.unlinkSync(preferencesPath);
+    fs.renameSync(tempPath, preferencesPath);
+  } catch (_error) {}
+}
+
+app.dkForcePopupToTab = loadPopupRoutingPreference();
+app.dkSetForcePopupToTab = function (enabled) {
+  app.dkForcePopupToTab = !!enabled;
+  savePopupRoutingPreference(app.dkForcePopupToTab);
+};
 
 function normalizeLaunchUrl(value) {
   const input = String(value || '').trim();
@@ -51,6 +104,69 @@ function parseLaunchOptions(argv) {
 
 function isTabDisposition(disposition) {
   return disposition === 'foreground-tab' || disposition === 'background-tab';
+}
+
+function getMainBrowserWindow() {
+  const windows = BrowserWindow.getAllWindows();
+  for (let i = 0; i < windows.length; i += 1) {
+    const win = windows[i];
+    if (!win || win.isDestroyed()) continue;
+    try {
+      if (typeof win.getBrowserView === 'function' && win.getBrowserView()) return win;
+    } catch (_error) {}
+  }
+  const focused = BrowserWindow.getFocusedWindow();
+  return focused && !focused.isDestroyed() ? focused : null;
+}
+
+function getActiveBrowserViewContents() {
+  const win = getMainBrowserWindow();
+  if (!win || win.isDestroyed() || typeof win.getBrowserView !== 'function') return null;
+  try {
+    const view = win.getBrowserView();
+    return view && view.webContents && !view.webContents.isDestroyed() ? view.webContents : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function sendMenuCommand(command) {
+  const win = getMainBrowserWindow();
+  if (!win || win.isDestroyed()) return;
+  try { win.webContents.send('browser:menu-command', command); } catch (_error) {}
+}
+
+function showEnhancedFeatureMenu() {
+  const win = getMainBrowserWindow();
+  const contents = getActiveBrowserViewContents();
+  if (!win || win.isDestroyed()) return;
+
+  const template = [
+    { label: '뒤로가기', enabled: !!(contents && contents.canGoBack()), click: () => { try { contents.goBack(); } catch (_error) {} } },
+    { label: '앞으로가기', enabled: !!(contents && contents.canGoForward()), click: () => { try { contents.goForward(); } catch (_error) {} } },
+    { label: '새로고침', enabled: !!contents, click: () => { try { contents.reload(); } catch (_error) {} } },
+    { label: '강제 새로고침 (캐시 무시)', enabled: !!contents, click: () => { try { contents.reloadIgnoringCache(); } catch (_error) {} } },
+    { label: '홈', click: () => sendMenuCommand('home') },
+    { type: 'separator' },
+    { label: '새 탭', click: () => sendMenuCommand('new-tab') },
+    { label: '주소창으로 이동', click: () => sendMenuCommand('focus-address') },
+    { label: '현재 페이지 북마크 추가/제거', click: () => sendMenuCommand('toggle-bookmark') },
+    { type: 'separator' },
+    {
+      label: '새창을 항상 새 탭으로 열기',
+      type: 'checkbox',
+      checked: !!app.dkForcePopupToTab,
+      click: (item) => app.dkSetForcePopupToTab(!!item.checked)
+    },
+    { type: 'separator' },
+    {
+      label: '배율 / Flash / 이미지 다운로드…',
+      enabled: !!contents,
+      click: () => setTimeout(() => ipcMain.emit('browser:feature-menu'), 0)
+    }
+  ];
+
+  try { Menu.buildFromTemplate(template).popup({ window: win }); } catch (_error) {}
 }
 
 const popupWindows = new Set();
@@ -100,8 +216,9 @@ function routeNewWindow(event, url, _frameName, disposition, options) {
   try {
     event.preventDefault();
 
-    if (isTabDisposition(disposition)) {
-      // Keep normal _blank / browser-tab style requests inside the main tab UI.
+    if (app.dkForcePopupToTab || isTabDisposition(disposition)) {
+      // Keep normal _blank requests in tabs. When the user enables the feature
+      // menu toggle, real popup/window.open requests are routed to tabs as well.
       ipcMain.emit('browser:new-tab', { sender: null }, url || 'about:blank');
       return;
     }
@@ -134,6 +251,8 @@ function installWindowRouting(contents) {
 // windows, so a popup can legitimately open another popup when legacy code
 // requires it.
 app.on('web-contents-created', (_event, contents) => installWindowRouting(contents));
+
+ipcMain.on('browser:enhanced-feature-menu', showEnhancedFeatureMenu);
 
 const launchOptions = parseLaunchOptions(process.argv);
 let maximizePending = launchOptions.startMaximized;
