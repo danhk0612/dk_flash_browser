@@ -2,10 +2,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { app, BrowserWindow, crashReporter, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, crashReporter, dialog, ipcMain, session } = require('electron');
 
 const DEFAULT_START_URL = 'https://html.duckduckgo.com/html';
 const MIN_FLASH_SIZE = 4 * 1024 * 1024;
+const BROWSER_PARTITION = 'persist:dk-flash-browser';
 
 function getRootDir() {
   return process.defaultApp ? path.resolve(__dirname, '..', '..') : path.dirname(process.execPath);
@@ -16,6 +17,7 @@ const userDataPath = path.join(rootDir, 'UserData');
 const bookmarksPath = path.join(userDataPath, 'bookmarks.json');
 const configPath = path.join(rootDir, 'config.ini');
 const flashPath = path.join(rootDir, 'Flash', 'pepflashplayer.dll');
+const pagePreloadPath = path.join(__dirname, 'page-preload.js');
 const logDir = path.join(rootDir, 'Logs');
 const logPath = path.join(logDir, 'browser.log');
 
@@ -219,6 +221,15 @@ try {
   writeBootstrapLog('CRASH-REPORTER', 'Failed to initialize crash reporter', error);
 }
 
+app.on('ready', () => {
+  try {
+    session.fromPartition(BROWSER_PARTITION).setPreloads([pagePreloadPath]);
+    writeBootstrapLog('PAGE-INPUT', 'BrowserView page click preload enabled.');
+  } catch (error) {
+    writeBootstrapLog('PAGE-INPUT', 'Failed to enable BrowserView page click preload', error);
+  }
+});
+
 app.on('web-contents-created', (_event, contents) => {
   try {
     if (!contents || typeof contents.getType !== 'function' || contents.getType() !== 'browserView') return;
@@ -268,15 +279,13 @@ app.on('web-contents-created', (_event, contents) => {
   }
 });
 
-ipcMain.on('browser:focus-chrome', () => {
+ipcMain.on('browser:page-mousedown', () => {
   try {
     BrowserWindow.getAllWindows().forEach((win) => {
-      if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
-        win.webContents.focus();
-      }
+      if (win && !win.isDestroyed()) win.webContents.send('browser:close-bookmark-menus');
     });
   } catch (error) {
-    writeBootstrapLog('BOOKMARK-MENU', 'Failed to focus browser chrome webContents', error);
+    writeBootstrapLog('BOOKMARK-MENU', 'Failed to close bookmark menus on page mouse input', error);
   }
 });
 
