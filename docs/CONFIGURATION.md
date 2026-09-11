@@ -22,7 +22,7 @@ The portable executable reads this file at startup. Editing it does not require 
 
 ```ini
 [Browser]
-StartUrl=https://software.mydepot.kr/
+StartUrl=https://html.duckduckgo.com/html
 ```
 
 ### `Browser.StartUrl`
@@ -33,7 +33,7 @@ StartUrl=https://software.mydepot.kr/
 - If the file, section, key, or value is missing/empty, DK Flash Browser applies:
 
 ```text
-https://software.mydepot.kr/
+https://html.duckduckgo.com/html
 ```
 
 The fallback is written into `config.ini` at startup so subsequent launches have an explicit value.
@@ -44,8 +44,8 @@ Changes take effect the next time DK Flash Browser starts. Existing already-open
 
 ```ini
 [DefaultBookmarks]
-Bookmark1=MyDepot Software|https://software.mydepot.kr/
-Bookmark2=Example|http://legacy-server/
+Bookmark1=DuckDuckGo|https://html.duckduckgo.com/html
+Bookmark2=Duck.ai|https://duck.ai/
 ```
 
 Format:
