@@ -56,7 +56,7 @@ Status: complete, user-validated, and merged
 
 ## T06 — Configuration finalization
 
-Status: complete; user requested progression to T07
+Status: complete and merged
 
 - `[Browser] StartUrl=...` controls startup, Home / Alt+Home, and manually created new tabs.
 - Missing or empty `StartUrl` falls back to `https://html.duckduckgo.com/html` and is written into `config.ini`.
@@ -97,11 +97,9 @@ Diagnostic log tags remain available:
 - `PROCESS-EXIT`
 - existing `RENDERER-CRASH`, `GPU-CRASH`, `MAIN-UNCAUGHT`, `MAIN-REJECTION`
 
-T06 startup-default/Flash preflight runtime checks are carried forward into T07's real-system validation checklist rather than blocking progression.
-
 ## T07 — Real legacy-system validation
 
-Status: complete and user-accepted; ready to merge
+Status: complete, user-accepted, and merged as `31e8b461abd456fdf1e4f0ad888fe83c99f05b34`
 
 Validated/accepted outcomes:
 
@@ -122,10 +120,20 @@ See `docs/T07_VALIDATION.md` for the retained validation checklist and limitatio
 
 ## T08 — Final packaging
 
-Status: next after T07 merge
+Status: active on `task/t08-final-packaging`
 
-- Remove unnecessary development artifacts.
-- Final product name/icon.
-- Produce portable ZIP layout.
-- Final usage/build documentation.
-- Version 1.0.0.
+Implemented in T08 so far:
+
+- application version raised to `1.0.0`;
+- package script creates both `dist\DKFlashBrowser-win32-ia32\` and `dist\DKFlashBrowser-1.0.0-win32-ia32.zip`;
+- package includes `VERSION.txt`, README, project license and third-party notices;
+- portable validator checks packaged version metadata in addition to x86/runtime requirements;
+- README updated from the obsolete T06 status to final 1.0.0 usage/build/limitations documentation.
+
+Remaining before T08 completion:
+
+- run the final Windows package script on the user environment;
+- run `scripts\validate-portable.ps1` against the generated 1.0.0 package;
+- launch the generated package and smoke-test startup, Flash, tabs, bookmarks, zoom and feature menu;
+- decide/apply the final application icon if a custom icon is required; no binary `.ico` is currently stored in the repository;
+- after successful final validation, mark T08 complete, merge the T08 PR, and optionally tag/release `v1.0.0`.
