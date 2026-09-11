@@ -1,6 +1,6 @@
 # DK Flash Browser configuration
 
-DK Flash Browser intentionally exposes a very small external configuration surface.
+DK Flash Browser intentionally exposes a small external configuration surface.
 
 ## File location
 
@@ -18,11 +18,11 @@ Portable package:
 
 The portable executable reads this file at startup. Editing it does not require rebuilding the application.
 
-## Supported settings
+## Browser homepage
 
 ```ini
 [Browser]
-StartUrl=http://legacy-server/
+StartUrl=https://software.mydepot.kr/
 ```
 
 ### `Browser.StartUrl`
@@ -30,9 +30,57 @@ StartUrl=http://legacy-server/
 - Used as the page opened when the application starts.
 - Used by the Home button and `Alt+Home`.
 - Used as the initial URL for a manually created new tab.
-- Default: `about:blank` when the file, section, key, or value is missing.
+- If the file, section, key, or value is missing/empty, DK Flash Browser applies:
+
+```text
+https://software.mydepot.kr/
+```
+
+The fallback is written into `config.ini` at startup so subsequent launches have an explicit value.
 
 Changes take effect the next time DK Flash Browser starts. Existing already-open tabs are not rewritten.
+
+## First-run default bookmarks
+
+```ini
+[DefaultBookmarks]
+Bookmark1=MyDepot Software|https://software.mydepot.kr/
+Bookmark2=Example|http://legacy-server/
+```
+
+Format:
+
+```text
+BookmarkN=Title|URL
+```
+
+Behavior:
+
+- These entries are used only when `UserData\bookmarks.json` does not exist.
+- A new/reset portable profile therefore receives the configured default bookmarks automatically.
+- Once `bookmarks.json` exists, config defaults no longer modify the user's bookmarks.
+- If the user deletes all bookmarks, the browser stores an existing but empty bookmark file, so defaults are not recreated.
+- If `bookmarks.json` itself is deleted, the next launch is treated as a reset profile and config defaults are created again.
+- Default bookmarks are created in the root bookmark bar. The user may later move them into folders, rename them, or delete them normally.
+
+## Flash startup preflight
+
+Before the normal browser code is loaded, DK Flash Browser validates the bundled/user-supplied:
+
+```text
+Flash\pepflashplayer.dll
+```
+
+The startup preflight checks:
+
+- the DLL exists;
+- it is a regular file of a plausible Flash Player size;
+- it has a valid Windows PE header;
+- the PE machine type is x86 (`0x014C`).
+
+If the check fails, an error message is displayed and the application exits without loading a browser page. The failure is also written to `Logs\browser.log` under `FLASH-CHECK`.
+
+This preflight verifies the supplied Flash binary before browsing starts; actual SWF rendering/interaction remains part of real legacy-system validation.
 
 ## Parsing behavior
 
@@ -44,7 +92,7 @@ Changes take effect the next time DK Flash Browser starts. Existing already-open
 
 ## Intentionally not configurable
 
-The following are fixed product/runtime behavior rather than external configuration:
+The following remain fixed product/runtime behavior:
 
 - Electron/Chromium runtime generation.
 - Pepper Flash version/path convention.
