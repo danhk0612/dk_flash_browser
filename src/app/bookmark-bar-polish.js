@@ -31,34 +31,55 @@
         return true;
       }
     }
-    return false;
+    panel.hidden = true;
+    return true;
+  }
+
+  function closeEditorPanel() {
+    const panel = visible('.bookmark-editor-panel');
+    if (!panel) return false;
+    const buttons = panel.querySelectorAll('.bookmark-editor-button');
+    for (let i = buttons.length - 1; i >= 0; i -= 1) {
+      if (String(buttons[i].textContent || '').trim() === '취소') {
+        buttons[i].click();
+        return true;
+      }
+    }
+    panel.hidden = true;
+    return true;
   }
 
   function closeTransientPanels() {
-    closeContextPanel();
-    closeFolderDropdown();
+    const editorClosed = closeEditorPanel();
+    const contextClosed = closeContextPanel();
+    const dropdownClosed = closeFolderDropdown();
+    return editorClosed || contextClosed || dropdownClosed;
   }
 
   document.addEventListener('mousedown', function (event) {
     const dropdown = visible('.bookmark-dropdown');
     const context = visible('.bookmark-context-panel');
     const editor = visible('.bookmark-editor-panel');
-    if (!dropdown && !context) return;
+    if (!dropdown && !context && !editor) return;
+
+    // Anything that belongs to the bookmark bar UI remains interactive.
     if (bookmarkBar.contains(event.target)) return;
     if (dropdown && dropdown.contains(event.target)) return;
     if (context && context.contains(event.target)) return;
     if (editor && editor.contains(event.target)) return;
+
+    // Tabs, toolbar/address bar and every other browser-chrome area close it.
     closeTransientPanels();
   }, true);
 
   window.addEventListener('keydown', function (event) {
     if (event.key !== 'Escape') return;
-    if (visible('.bookmark-editor-panel')) return;
-    if (closeContextPanel() || closeFolderDropdown()) event.preventDefault();
+    if (closeTransientPanels()) event.preventDefault();
   }, true);
 
+  // Page content is hosted in a BrowserView, so DOM mouse events above cannot
+  // see page clicks. The main process forwards BrowserView focus separately.
   window.dkBrowser.on('browser:page-focus', function () {
-    if (visible('.bookmark-editor-panel')) return;
     closeTransientPanels();
   });
 })();
