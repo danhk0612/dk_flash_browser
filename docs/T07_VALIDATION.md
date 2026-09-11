@@ -73,7 +73,7 @@ Record PASS / FAIL / NOT USED for each applicable item:
 - Multiple SWFs loaded through DOM or network requests appear as separate selectable entries when their URLs can be observed.
 - The toolbar function menu exposes Flash and image download lists.
 
-Pepper Flash's own native right-click menu is owned by the plugin and cannot be extended directly. Flash download is therefore best-effort and depends on a direct URL being observable either in the page DOM or Chromium network requests.
+Pepper Flash's own native right-click menu is owned by the plugin. The attempted custom Flash-download injection into that menu was removed because it does not work reliably. Flash download is available only through the dedicated feature menu / `Ctrl+Shift+S`, and remains best-effort when a direct SWF URL is observable.
 
 ## D. Tabs / popup / zoom behavior
 
@@ -86,12 +86,13 @@ Pepper Flash's own native right-click menu is owned by the plugin and cannot be 
 - Confirm the native window title follows the active page as `페이지 제목 - DK Flash Browser`.
 - Confirm each tab starts at 100% zoom.
 - Confirm `Ctrl + +`, `Ctrl + -`, and `Ctrl + 0` adjust/reset zoom while the browser window is focused.
-- Confirm `Ctrl + mouse wheel` changes zoom where Electron receives the native zoom event, including Flash pages if supported by the plugin/runtime combination.
-- Confirm the toolbar indicator reflects the BrowserView's actual zoom factor (for example `100%`, `125%`).
+- Confirm the toolbar indicator follows the active BrowserView's actual zoom factor. The indicator is refreshed immediately on app-driven zoom and also polls the active BrowserView as a safety net.
 - Confirm clicking the zoom indicator resets the active tab to 100%.
 - Confirm the function menu can zoom in, zoom out, and reset to 100%.
 - Confirm zoom remains independent when switching between tabs.
 - Exercise target `_blank` / `window.open()` workflows used by the actual legacy site.
+
+`Ctrl + mouse wheel` is best-effort only on this Electron 6 + Pepper Flash runtime. Electron can handle it only when Chromium receives a `zoom-changed` event; Pepper Flash may consume the wheel first, so Flash-area wheel zoom is not a completion requirement.
 
 If a real legacy workflow requires a separate popup window rather than the current tab routing, record the exact workflow and URL/action; do not redesign popup behavior preemptively.
 
