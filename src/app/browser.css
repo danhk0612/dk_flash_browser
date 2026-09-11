@@ -40,7 +40,8 @@ button, input { font: inherit; }
   overflow-y: hidden;
   white-space: nowrap;
 }
-.tab-list::-webkit-scrollbar { height: 4px; }
+.tab-list::-webkit-scrollbar { height: 0; }
+.tab-list:hover::-webkit-scrollbar { height: 4px; }
 .tab-list::-webkit-scrollbar-track { background: transparent; }
 .tab-list::-webkit-scrollbar-thumb { border-radius: 2px; background: #aaaaaa; }
 .tab-list::-webkit-scrollbar-thumb:hover { background: #888888; }
@@ -49,21 +50,29 @@ button, input { font: inherit; }
   display: flex;
   flex: 0 0 180px;
   align-items: center;
-  min-width: 120px;
+  min-width: 36px;
   max-width: 220px;
   height: 31px;
   margin-right: 2px;
-  padding: 0 5px 0 10px;
+  padding: 0 5px 0 8px;
+  overflow: hidden;
   border: 1px solid #c8c8c8;
   border-bottom: 0;
   border-radius: 5px 5px 0 0;
   background: #ececec;
   cursor: default;
 }
-
 .tab-item.active { background: #ffffff; }
+.tab-favicon {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  object-fit: contain;
+}
 .tab-title {
   flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -83,6 +92,15 @@ button, input { font: inherit; }
   line-height: 20px;
 }
 .tab-close:hover { background: #d7d7d7; }
+.tab-item.icon-only {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+.tab-item.icon-only .tab-favicon { margin-right: 0; }
+.tab-item.icon-only .tab-title,
+.tab-item.icon-only .tab-close { display: none; }
+
 .new-tab-button {
   flex: 0 0 32px;
   width: 32px;
@@ -125,21 +143,39 @@ button, input { font: inherit; }
 .hard-reload { min-width: 39px; font-size: 15px; font-weight: 600; }
 .bookmark-toggle { font-size: 20px; }
 
-.address-input {
+.address-box {
+  display: flex;
   flex: 1 1 auto;
+  align-items: center;
   min-width: 100px;
   height: 32px;
-  padding: 4px 10px;
+  padding-left: 8px;
   border: 1px solid #bcbcbc;
   border-radius: 4px;
-  outline: none;
   background: #ffffff;
+}
+.address-box:focus-within { border-color: #777777; }
+.address-favicon {
+  display: none;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  object-fit: contain;
+}
+.address-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 4px 10px 4px 0;
+  border: 0;
+  outline: none;
+  background: transparent;
   color: #202124;
   caret-color: #202124;
   -webkit-text-fill-color: #202124;
   font-size: 14px;
 }
-.address-input:focus { border-color: #777777; }
 
 .bookmark-bar {
   display: flex;
@@ -156,7 +192,9 @@ button, input { font: inherit; }
 }
 
 .bookmark-item {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
   max-width: 220px;
   height: 24px;
   padding: 2px 8px;
@@ -166,9 +204,21 @@ button, input { font: inherit; }
   background: transparent;
   color: #202124;
   cursor: pointer;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+}
+.bookmark-favicon {
+  display: none;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin-right: 5px;
+  object-fit: contain;
+}
+.bookmark-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .bookmark-item:hover { border-color: #d0d0d0; background: #e9e9e9; }
 .browser-view { flex: 1 1 auto; width: 100%; min-height: 0; }
