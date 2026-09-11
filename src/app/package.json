@@ -2,6 +2,6 @@
   "name": "dk-flash-browser",
   "version": "1.0.0",
   "productName": "DK Flash Browser",
-  "main": "bootstrap.js",
+  "main": "launch-bootstrap.js",
   "private": true
 }
