@@ -1,13 +1,18 @@
 param(
     [string]$PackageDir,
-    [switch]$PrepareIsolationCopies
+    [switch]$PrepareIsolationCopies,
+    [switch]$PublicRelease
 )
 
 $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path -Parent $PSScriptRoot
 if (-not $PackageDir) {
-    $PackageDir = Join-Path $Root 'dist\DKFlashBrowser-win32-ia32'
+    if ($PublicRelease) {
+        $PackageDir = Join-Path $Root 'dist\DKFlashBrowser-public-win32-ia32'
+    } else {
+        $PackageDir = Join-Path $Root 'dist\DKFlashBrowser-win32-ia32'
+    }
 }
 $PackageDir = [System.IO.Path]::GetFullPath($PackageDir)
 
@@ -70,6 +75,8 @@ Assert-Exists $PackageDir 'package directory'
 
 $BrowserExe = Join-Path $PackageDir 'DKFlashBrowser.exe'
 $FlashDll = Join-Path $PackageDir 'Flash\pepflashplayer.dll'
+$FlashReadme = Join-Path $PackageDir 'Flash\README.txt'
+$PublicMarker = Join-Path $PackageDir 'PUBLIC_RELEASE.txt'
 $AppIcon = Join-Path $PackageDir 'DKFlashBrowser.ico'
 $Config = Join-Path $PackageDir 'config.ini'
 $UserData = Join-Path $PackageDir 'UserData'
@@ -83,7 +90,16 @@ $License = Join-Path $PackageDir 'LICENSE-DKFlashBrowser.txt'
 $Notices = Join-Path $PackageDir 'THIRD_PARTY_NOTICES.md'
 
 Assert-X86Pe $BrowserExe 'DKFlashBrowser.exe'
-Assert-X86Pe $FlashDll 'Pepper Flash DLL'
+if ($PublicRelease) {
+    if (Test-Path $FlashDll) {
+        throw 'Public release package must not contain Flash\pepflashplayer.dll.'
+    }
+    Write-Host '[OK] public release excludes Flash\pepflashplayer.dll'
+    Assert-Exists $FlashReadme 'Flash setup README'
+    Assert-Exists $PublicMarker 'public release marker'
+} else {
+    Assert-X86Pe $FlashDll 'Pepper Flash DLL'
+}
 Assert-Ico $AppIcon
 Assert-Exists $Config 'config.ini'
 Assert-Exists $UserData 'portable UserData directory'
@@ -129,13 +145,24 @@ if ($mainText -notmatch 'DKFlashBrowser\.ico') {
 }
 Write-Host '[OK] packaged browser window uses DKFlashBrowser.ico when present'
 
-$flashInfo = Get-Item $FlashDll
-if ($flashInfo.Length -le 0) {
-    throw 'Pepper Flash DLL is empty.'
+if ($PublicRelease) {
+    $flashNoticeText = Get-Content $FlashReadme -Raw
+    if ($flashNoticeText -notmatch 'pepflashplayer\.dll') {
+        throw 'Flash setup README does not explain where to place pepflashplayer.dll.'
+    }
+    Write-Host '[OK] public Flash setup instructions reference pepflashplayer.dll'
+} else {
+    $flashInfo = Get-Item $FlashDll
+    if ($flashInfo.Length -le 0) {
+        throw 'Pepper Flash DLL is empty.'
+    }
+    Write-Host ("[OK] Flash DLL size: {0:N0} bytes" -f $flashInfo.Length)
 }
-Write-Host ("[OK] Flash DLL size: {0:N0} bytes" -f $flashInfo.Length)
 
 if ($PrepareIsolationCopies) {
+    if ($PublicRelease) {
+        throw '-PrepareIsolationCopies is intended for a runnable local package with the user-supplied Flash DLL.'
+    }
     $ValidationRoot = Join-Path $Root 'dist\portable-validation'
     $CopyA = Join-Path $ValidationRoot 'portable-A'
     $CopyB = Join-Path $ValidationRoot 'portable-B'
@@ -154,5 +181,10 @@ if ($PrepareIsolationCopies) {
 }
 
 Write-Host ''
-Write-Host 'Static portable validation PASSED.'
-Write-Host 'Runtime validation is still required on Windows for the final 1.0.0 package.'
+if ($PublicRelease) {
+    Write-Host 'Static PUBLIC release validation PASSED.'
+    Write-Host 'This package intentionally cannot run Flash until the user supplies Flash\pepflashplayer.dll.'
+} else {
+    Write-Host 'Static portable validation PASSED.'
+    Write-Host 'Runtime validation is still required on Windows for the final 1.0.0 package.'
+}

@@ -1,3 +1,7 @@
+param(
+    [switch]$PublicRelease
+)
+
 $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path -Parent $PSScriptRoot
@@ -15,7 +19,6 @@ $ConfigExample = Join-Path $Root 'config.example.ini'
 $AppSource = Join-Path $Root 'src\app'
 $AppManifest = Join-Path $AppSource 'package.json'
 $DistRoot = Join-Path $Root 'dist'
-$OutputDir = Join-Path $DistRoot 'DKFlashBrowser-win32-ia32'
 
 if (-not (Test-Path $AppManifest)) {
     Write-Error "Missing app manifest: $AppManifest"
@@ -27,12 +30,18 @@ if (-not $Version) {
     Write-Error 'Application version is missing from src\app\package.json'
 }
 
-$ZipPath = Join-Path $DistRoot ("DKFlashBrowser-{0}-win32-ia32.zip" -f $Version)
+if ($PublicRelease) {
+    $OutputDir = Join-Path $DistRoot 'DKFlashBrowser-public-win32-ia32'
+    $ZipPath = Join-Path $DistRoot ("DKFlashBrowser-{0}-win32-ia32-public.zip" -f $Version)
+} else {
+    $OutputDir = Join-Path $DistRoot 'DKFlashBrowser-win32-ia32'
+    $ZipPath = Join-Path $DistRoot ("DKFlashBrowser-{0}-win32-ia32.zip" -f $Version)
+}
 
 & $Bootstrap
 & $GenerateIcon -OutputPath $IconPath
 
-if (-not (Test-Path $FlashDll)) {
+if (-not $PublicRelease -and -not (Test-Path $FlashDll)) {
     Write-Error "Missing Flash DLL: $FlashDll"
 }
 if (-not (Test-Path $IconPath)) {
@@ -96,7 +105,24 @@ if (Test-Path $Config) {
 
 $PackagedFlashDir = Join-Path $OutputDir 'Flash'
 New-Item -ItemType Directory -Force -Path $PackagedFlashDir | Out-Null
-Copy-Item $FlashDll (Join-Path $PackagedFlashDir 'pepflashplayer.dll') -Force
+if ($PublicRelease) {
+    $FlashNotice = @'
+DK Flash Browser does not include Adobe Flash Player / Pepper Flash.
+
+To use Flash content, the user must lawfully obtain a compatible 32-bit PPAPI
+pepflashplayer.dll and place it in this folder with the exact filename:
+
+    Flash\pepflashplayer.dll
+
+The validated development baseline was Pepper Flash 29.0.0.140 x86.
+Adobe Flash Player is third-party software and is not licensed or redistributed
+under the DK Flash Browser MIT License.
+'@
+    Set-Content -Path (Join-Path $PackagedFlashDir 'README.txt') -Value $FlashNotice -Encoding UTF8
+    Set-Content -Path (Join-Path $OutputDir 'PUBLIC_RELEASE.txt') -Value 'This public package intentionally excludes Adobe Flash Player / pepflashplayer.dll.' -Encoding UTF8
+} else {
+    Copy-Item $FlashDll (Join-Path $PackagedFlashDir 'pepflashplayer.dll') -Force
+}
 
 New-Item -ItemType Directory -Force -Path (Join-Path $OutputDir 'UserData') | Out-Null
 Copy-Item (Join-Path $Root 'LICENSE') (Join-Path $OutputDir 'LICENSE-DKFlashBrowser.txt') -Force
@@ -110,4 +136,9 @@ Write-Host "Package ready: $OutputDir"
 Write-Host "Executable: $BrowserExe"
 Write-Host "Application icon: $(Join-Path $OutputDir 'DKFlashBrowser.ico')"
 Write-Host "Version: $Version"
+if ($PublicRelease) {
+    Write-Host 'Mode: PUBLIC RELEASE (Flash DLL intentionally excluded)'
+} else {
+    Write-Host 'Mode: LOCAL VALIDATED PACKAGE (user-supplied Flash DLL included locally)'
+}
 Write-Host "Portable ZIP: $ZipPath"
