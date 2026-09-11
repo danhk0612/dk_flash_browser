@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, dialog, ipcMain, session, webContents } = require('electron');
 const appManifest = require('./package.json');
 
 const FLASH_VERSION = '29.0.0.140';
@@ -38,6 +38,9 @@ const rootDir = getRootDir();
 const flashPath = path.join(rootDir, 'Flash', 'pepflashplayer.dll');
 const appIconPath = path.join(rootDir, 'DKFlashBrowser.ico');
 const preferencesPath = path.join(rootDir, 'UserData', 'browser-preferences.json');
+const bookmarksPath = path.join(rootDir, 'UserData', 'bookmarks.json');
+const flashCandidatesByContents = new Map();
+const imageCandidatesByContents = new Map();
 app.commandLine.appendSwitch('ppapi-flash-path', flashPath);
 app.commandLine.appendSwitch('ppapi-flash-version', FLASH_VERSION);
 app.commandLine.appendSwitch('allow-outdated-plugins');
@@ -136,11 +139,77 @@ function sendMenuCommand(command) {
   try { win.webContents.send('browser:menu-command', command); } catch (_error) {}
 }
 
+function mediaFilename(url, fallback) {
+  try {
+    const parsed = new URL(url);
+    const name = decodeURIComponent(path.basename(parsed.pathname || ''));
+    return name || fallback;
+  } catch (_error) {
+    return fallback;
+  }
+}
+
+function mergeCandidates(map, contentsId, urls) {
+  if (!contentsId) return;
+  const current = map.get(contentsId) || [];
+  const merged = current.concat(Array.isArray(urls) ? urls : []);
+  map.set(contentsId, Array.from(new Set(merged.filter((url) => typeof url === 'string' && url))));
+}
+
+function normalizedCandidates(map, contents) {
+  const stored = contents ? (map.get(contents.id) || []) : [];
+  return Array.from(new Set(stored.filter((url) => typeof url === 'string' && url)));
+}
+
+function candidateLabel(url, index, fallback) {
+  const name = mediaFilename(url, fallback);
+  try {
+    const parsed = new URL(url);
+    return String(index + 1) + '. ' + name + ' — ' + parsed.host;
+  } catch (_error) {
+    return String(index + 1) + '. ' + name;
+  }
+}
+
+function downloadMediaUrl(contents, url, fallback, title) {
+  if (!contents || contents.isDestroyed() || !url) return;
+  try {
+    const win = getMainBrowserWindow();
+    const savePath = dialog.showSaveDialogSync(win || undefined, {
+      title: title,
+      defaultPath: path.join(app.getPath('downloads'), mediaFilename(url, fallback))
+    });
+    if (!savePath || contents.isDestroyed()) return;
+    contents.session.once('will-download', (_event, item) => {
+      try { item.setSavePath(savePath); } catch (_error) {}
+    });
+    contents.downloadURL(url);
+  } catch (_error) {}
+}
+
+function mediaSubmenu(contents, type) {
+  const isFlash = type === 'flash';
+  const candidates = normalizedCandidates(isFlash ? flashCandidatesByContents : imageCandidatesByContents, contents);
+  if (!candidates.length) return [{ label: '감지된 항목 없음', enabled: false }];
+  return candidates.slice(0, 100).map((url, index) => ({
+    label: candidateLabel(url, index, isFlash ? 'flash.swf' : 'image'),
+    toolTip: url,
+    click: () => downloadMediaUrl(contents, url, isFlash ? 'flash.swf' : 'image', isFlash ? 'Flash 파일 저장' : '이미지 저장')
+  }));
+}
+
+function currentZoomPercent(contents) {
+  if (!contents || contents.isDestroyed()) return 100;
+  try { return Math.round((Number(contents.getZoomFactor()) || 1) * 100); }
+  catch (_error) { return 100; }
+}
+
 function showEnhancedFeatureMenu() {
   const win = getMainBrowserWindow();
   const contents = getActiveBrowserViewContents();
   if (!win || win.isDestroyed()) return;
 
+  const percent = currentZoomPercent(contents);
   const template = [
     { label: '뒤로가기', enabled: !!(contents && contents.canGoBack()), click: () => { try { contents.goBack(); } catch (_error) {} } },
     { label: '앞으로가기', enabled: !!(contents && contents.canGoForward()), click: () => { try { contents.goForward(); } catch (_error) {} } },
@@ -160,13 +229,126 @@ function showEnhancedFeatureMenu() {
     },
     { type: 'separator' },
     {
-      label: '배율 / Flash / 이미지 다운로드…',
+      label: '배율 (' + percent + '%)',
       enabled: !!contents,
-      click: () => setTimeout(() => ipcMain.emit('browser:feature-menu'), 0)
+      submenu: [
+        { label: '확대', click: () => ipcMain.emit('browser:feature-zoom-in') },
+        { label: '축소', click: () => ipcMain.emit('browser:feature-zoom-out') },
+        { label: '100%로 초기화', click: () => ipcMain.emit('browser:feature-zoom-reset') }
+      ]
+    },
+    {
+      label: '다운로드',
+      enabled: !!contents,
+      submenu: [
+        { label: 'Flash 다운로드', submenu: mediaSubmenu(contents, 'flash') },
+        { label: '이미지 다운로드', submenu: mediaSubmenu(contents, 'image') }
+      ]
     }
   ];
 
   try { Menu.buildFromTemplate(template).popup({ window: win }); } catch (_error) {}
+}
+
+function classifyMediaRequest(url, resourceType) {
+  const value = String(url || '');
+  if (/\.swf(?:$|[?#])/i.test(value)) return 'flash';
+  if (resourceType === 'image' || /\.(?:png|jpe?g|gif|webp|bmp|ico)(?:$|[?#])/i.test(value)) return 'image';
+  return '';
+}
+
+function trackMediaCandidates(event, urls, type) {
+  try {
+    if (!event || !event.sender || event.sender.isDestroyed()) return;
+    mergeCandidates(type === 'flash' ? flashCandidatesByContents : imageCandidatesByContents, event.sender.id, urls);
+  } catch (_error) {}
+}
+
+function installIntegratedNetworkTracking() {
+  try {
+    const browserSession = session.fromPartition(BROWSER_PARTITION);
+    browserSession.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
+      try {
+        const kind = classifyMediaRequest(details.url, details.resourceType);
+        if (kind) {
+          const contentsId = Number(details.webContentsId) || 0;
+          if (contentsId) {
+            mergeCandidates(kind === 'flash' ? flashCandidatesByContents : imageCandidatesByContents, contentsId, [details.url]);
+            let contents = null;
+            try { contents = webContents.fromId(contentsId); } catch (_error) {}
+            if (contents && !contents.isDestroyed()) {
+              // Feed the original bootstrap maps as well so Ctrl+Shift+S and any
+              // legacy download entry points keep the same network-only coverage.
+              ipcMain.emit(kind === 'flash' ? 'browser:flash-candidates' : 'browser:image-candidates', { sender: contents }, [details.url]);
+            }
+          }
+        }
+      } catch (_error) {}
+      callback({ cancel: false });
+    });
+  } catch (_error) {}
+}
+
+function pageOrigin(url) {
+  try {
+    const parsed = new URL(String(url || ''));
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') ? parsed.origin : '';
+  } catch (_error) {
+    return '';
+  }
+}
+
+function bookmarkFaviconState(pageUrl) {
+  const targetOrigin = pageOrigin(pageUrl);
+  if (!targetOrigin || !fs.existsSync(bookmarksPath)) return { count: 0, missing: 0 };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(bookmarksPath, 'utf8'));
+    const items = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.items) ? parsed.items : []);
+    let count = 0;
+    let missing = 0;
+    const walk = (nodes) => {
+      (Array.isArray(nodes) ? nodes : []).forEach((node) => {
+        if (!node || typeof node !== 'object') return;
+        if (node.type === 'folder' || Array.isArray(node.children)) {
+          walk(node.children);
+          return;
+        }
+        if (!node.url || pageOrigin(node.url) !== targetOrigin) return;
+        count += 1;
+        if (!String(node.favicon || '').trim()) missing += 1;
+      });
+    };
+    walk(items);
+    return { count: count, missing: missing };
+  } catch (_error) {
+    return { count: 0, missing: 0 };
+  }
+}
+
+function forwardFaviconCandidate(event, payload) {
+  try {
+    if (!event || !event.sender || event.sender.isDestroyed() || !payload) return;
+    const pageUrl = String(payload.pageUrl || '');
+    const favicon = String(payload.favicon || '');
+    const source = String(payload.source || 'declared');
+    if (!pageUrl || !favicon) return;
+
+    const senderUrl = String(event.sender.getURL() || '');
+    if (pageOrigin(pageUrl) && pageOrigin(senderUrl) && pageOrigin(pageUrl) !== pageOrigin(senderUrl)) return;
+
+    if (source === 'fallback') {
+      const state = bookmarkFaviconState(pageUrl);
+      // A generic /favicon.ico fallback is only allowed to fill an origin whose
+      // matching bookmarks are all missing icons. It must never replace a known
+      // custom favicon with a weaker fallback candidate.
+      if (!state.count || state.missing !== state.count) return;
+    }
+
+    const forwarded = { url: pageUrl, favicon: favicon };
+    BrowserWindow.getAllWindows().forEach((win) => {
+      if (win && !win.isDestroyed()) win.webContents.send('browser:favicon', forwarded);
+    });
+  } catch (_error) {}
 }
 
 const popupWindows = new Set();
@@ -253,6 +435,9 @@ function installWindowRouting(contents) {
 app.on('web-contents-created', (_event, contents) => installWindowRouting(contents));
 
 ipcMain.on('browser:enhanced-feature-menu', showEnhancedFeatureMenu);
+ipcMain.on('browser:flash-candidates', (event, urls) => trackMediaCandidates(event, urls, 'flash'));
+ipcMain.on('browser:image-candidates', (event, urls) => trackMediaCandidates(event, urls, 'image'));
+ipcMain.on('browser:page-favicon-candidate', forwardFaviconCandidate);
 
 const launchOptions = parseLaunchOptions(process.argv);
 let maximizePending = launchOptions.startMaximized;
@@ -299,3 +484,8 @@ if (startUrlPending) {
 }
 
 require('./bootstrap');
+
+// Electron webRequest keeps only the last listener for a given hook. Register the
+// integrated tracker after bootstrap so it becomes the active listener, while
+// feeding every detected URL back through bootstrap's existing IPC caches.
+app.on('ready', installIntegratedNetworkTracking);
