@@ -29,7 +29,6 @@
   const faviconCache = Object.create(null);
   let bookmarkData = { version: 2, items: [] };
   let openFolderId = null;
-  let contextTargetId = null;
   let idCounter = 0;
 
   const bookmarkDropdown = document.createElement('div');
@@ -41,6 +40,11 @@
   bookmarkContextPanel.className = 'bookmark-context-panel';
   bookmarkContextPanel.hidden = true;
   bookmarkBar.parentNode.insertBefore(bookmarkContextPanel, browserPlaceholder);
+
+  const bookmarkEditorPanel = document.createElement('div');
+  bookmarkEditorPanel.className = 'bookmark-editor-panel';
+  bookmarkEditorPanel.hidden = true;
+  bookmarkBar.parentNode.insertBefore(bookmarkEditorPanel, browserPlaceholder);
 
   function send(channel, payload) {
     window.dkBrowser.send(channel, payload);
@@ -93,17 +97,15 @@
     if (!src) return;
     image.onload = function () { image.style.display = 'block'; };
     image.onerror = function () {
-      if (src !== fallbackFaviconUrl(pageUrl)) {
-        const fallback = fallbackFaviconUrl(pageUrl);
-        if (fallback) {
-          image.onload = function () { image.style.display = 'block'; };
-          image.onerror = function () {
-            image.style.display = 'none';
-            image.removeAttribute('src');
-          };
-          image.src = fallback;
-          return;
-        }
+      const fallback = fallbackFaviconUrl(pageUrl);
+      if (fallback && src !== fallback) {
+        image.onload = function () { image.style.display = 'block'; };
+        image.onerror = function () {
+          image.style.display = 'none';
+          image.removeAttribute('src');
+        };
+        image.src = fallback;
+        return;
       }
       image.style.display = 'none';
       image.removeAttribute('src');
@@ -131,6 +133,13 @@
     };
   }
 
+  function normalizeBookmarkStore(stored) {
+    let source = [];
+    if (Array.isArray(stored)) source = stored;
+    else if (stored && stored.version === 2 && Array.isArray(stored.items)) source = stored.items;
+    return { version: 2, items: source.map(normalizeBookmarkNode).filter(Boolean) };
+  }
+
   function readLegacyBookmarks() {
     try {
       const parsed = JSON.parse(localStorage.getItem(bookmarkStorageKey) || '[]');
@@ -140,18 +149,10 @@
     }
   }
 
-  function normalizeBookmarkStore(stored) {
-    let source = [];
-    if (Array.isArray(stored)) source = stored;
-    else if (stored && stored.version === 2 && Array.isArray(stored.items)) source = stored.items;
-    return { version: 2, items: source.map(normalizeBookmarkNode).filter(Boolean) };
-  }
-
   function initializeBookmarks() {
     let stored = null;
     try { stored = window.dkBrowser.loadBookmarks(); } catch (_error) {}
     bookmarkData = normalizeBookmarkStore(stored);
-
     if (!bookmarkData.items.length) {
       const legacy = readLegacyBookmarks();
       if (legacy.length) bookmarkData = normalizeBookmarkStore(legacy);
@@ -225,6 +226,11 @@
     return found.list.splice(found.index, 1)[0] || null;
   }
 
+  function parentFolderIdOf(id) {
+    const found = findNode(id);
+    return found && found.parentFolder ? found.parentFolder.id : null;
+  }
+
   function moveNode(dragId, targetFolderId, beforeId) {
     if (!dragId || dragId === beforeId || dragId === targetFolderId) return;
     const source = findNode(dragId);
@@ -248,52 +254,168 @@
     saveBookmarkData(true);
   }
 
-  function parentFolderIdOf(id) {
+  function syncBrowserBounds() {
+    const rect = browserPlaceholder.getBoundingClientRect();
+    send('browser:bounds', { x: rect.left, y: rect.top, width: rect.width, height: rect.height });
+  }
+
+  function syncBrowserBoundsSoon() {
+    window.requestAnimationFrame(syncBrowserBounds);
+  }
+
+  function hideContextPanel() {
+    bookmarkContextPanel.hidden = true;
+    bookmarkContextPanel.textContent = '';
+    syncBrowserBoundsSoon();
+  }
+
+  function hideEditorPanel() {
+    bookmarkEditorPanel.hidden = true;
+    bookmarkEditorPanel.textContent = '';
+    syncBrowserBoundsSoon();
+  }
+
+  function editorButton(label, primary, handler) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'bookmark-editor-button' + (primary ? ' primary' : '');
+    button.textContent = label;
+    button.addEventListener('click', handler);
+    return button;
+  }
+
+  function showEditor(options) {
+    hideContextPanel();
+    bookmarkEditorPanel.textContent = '';
+    bookmarkEditorPanel.hidden = false;
+
+    const title = document.createElement('div');
+    title.className = 'bookmark-editor-title';
+    title.textContent = options.heading || '';
+    bookmarkEditorPanel.appendChild(title);
+
+    const fields = document.createElement('div');
+    fields.className = 'bookmark-editor-fields';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'bookmark-editor-input';
+    nameInput.placeholder = '이름';
+    nameInput.value = options.name || '';
+    fields.appendChild(nameInput);
+
+    let urlInput = null;
+    if (options.showUrl) {
+      urlInput = document.createElement('input');
+      urlInput.type = 'text';
+      urlInput.className = 'bookmark-editor-input url';
+      urlInput.placeholder = '주소';
+      urlInput.value = options.url || '';
+      fields.appendChild(urlInput);
+    }
+    bookmarkEditorPanel.appendChild(fields);
+
+    const actions = document.createElement('div');
+    actions.className = 'bookmark-editor-actions';
+    const save = editorButton(options.saveLabel || '저장', true, function () {
+      const name = nameInput.value.trim();
+      const url = urlInput ? normalizeUrl(urlInput.value) : '';
+      if (!name) {
+        nameInput.focus();
+        return;
+      }
+      if (urlInput && !url) {
+        urlInput.focus();
+        return;
+      }
+      hideEditorPanel();
+      options.onSave(name, url);
+    });
+    const cancel = editorButton('취소', false, hideEditorPanel);
+    actions.appendChild(save);
+    actions.appendChild(cancel);
+    bookmarkEditorPanel.appendChild(actions);
+
+    const submitOnEnter = function (event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        save.click();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        hideEditorPanel();
+      }
+    };
+    nameInput.addEventListener('keydown', submitOnEnter);
+    if (urlInput) urlInput.addEventListener('keydown', submitOnEnter);
+    window.requestAnimationFrame(function () {
+      nameInput.focus();
+      nameInput.select();
+      syncBrowserBounds();
+    });
+  }
+
+  function showDeleteConfirm(id) {
     const found = findNode(id);
-    return found && found.parentFolder ? found.parentFolder.id : null;
+    if (!found) return;
+    const node = found.node;
+    hideContextPanel();
+    bookmarkEditorPanel.textContent = '';
+    bookmarkEditorPanel.hidden = false;
+
+    const message = document.createElement('div');
+    message.className = 'bookmark-editor-confirm';
+    message.textContent = node.type === 'folder'
+      ? '폴더 "' + node.title + '"와 하위 북마크를 모두 삭제할까요?'
+      : '북마크 "' + node.title + '"을 삭제할까요?';
+    bookmarkEditorPanel.appendChild(message);
+
+    const actions = document.createElement('div');
+    actions.className = 'bookmark-editor-actions';
+    actions.appendChild(editorButton('삭제', true, function () {
+      removeNodeById(id);
+      if (openFolderId && (!findNode(openFolderId) || openFolderId === id)) openFolderId = null;
+      hideEditorPanel();
+      saveBookmarkData(true);
+    }));
+    actions.appendChild(editorButton('취소', false, hideEditorPanel));
+    bookmarkEditorPanel.appendChild(actions);
+    syncBrowserBoundsSoon();
   }
 
   function createFolder(parentFolderId) {
-    const title = window.prompt('폴더 이름', '새 폴더');
-    if (title === null) return;
-    const folder = { id: newNodeId('f'), type: 'folder', title: String(title || '새 폴더').trim() || '새 폴더', children: [] };
-    if (parentFolderId) {
-      const parent = findNode(parentFolderId);
-      if (parent && parent.node.type === 'folder') parent.node.children.push(folder);
-      else bookmarkData.items.push(folder);
-    } else {
-      bookmarkData.items.push(folder);
-    }
-    saveBookmarkData(true);
+    showEditor({
+      heading: '새 폴더',
+      name: '새 폴더',
+      showUrl: false,
+      onSave: function (name) {
+        const folder = { id: newNodeId('f'), type: 'folder', title: name, children: [] };
+        if (parentFolderId) {
+          const parent = findNode(parentFolderId);
+          if (parent && parent.node.type === 'folder') parent.node.children.push(folder);
+          else bookmarkData.items.push(folder);
+        } else {
+          bookmarkData.items.push(folder);
+        }
+        saveBookmarkData(true);
+      }
+    });
   }
 
   function editNode(id) {
     const found = findNode(id);
     if (!found) return;
     const node = found.node;
-    const title = window.prompt(node.type === 'folder' ? '폴더 이름' : '북마크 이름', node.title || '');
-    if (title === null) return;
-    node.title = String(title || '').trim() || (node.type === 'folder' ? '새 폴더' : node.url);
-    if (node.type === 'bookmark') {
-      const url = window.prompt('주소', node.url || '');
-      if (url === null) return;
-      const normalized = normalizeUrl(url);
-      if (normalized) node.url = normalized;
-    }
-    saveBookmarkData(true);
-  }
-
-  function deleteNode(id) {
-    const found = findNode(id);
-    if (!found) return;
-    const node = found.node;
-    const message = node.type === 'folder'
-      ? '폴더 "' + node.title + '"와 하위 북마크를 모두 삭제할까요?'
-      : '북마크 "' + node.title + '"을 삭제할까요?';
-    if (!window.confirm(message)) return;
-    removeNodeById(id);
-    if (openFolderId && (!findNode(openFolderId) || openFolderId === id)) openFolderId = null;
-    saveBookmarkData(true);
+    showEditor({
+      heading: node.type === 'folder' ? '폴더 수정' : '북마크 수정',
+      name: node.title || '',
+      showUrl: node.type === 'bookmark',
+      url: node.type === 'bookmark' ? node.url : '',
+      onSave: function (name, url) {
+        node.title = name;
+        if (node.type === 'bookmark') node.url = url;
+        saveBookmarkData(true);
+      }
+    });
   }
 
   function updateBookmarkButton() {
@@ -305,20 +427,20 @@
   function setDragHandlers(element, node, parentFolderId) {
     element.draggable = true;
     element.dataset.bookmarkId = node.id;
-    element.addEventListener('dragstart', (event) => {
+    element.addEventListener('dragstart', function (event) {
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', node.id);
       element.classList.add('dragging');
     });
-    element.addEventListener('dragend', () => element.classList.remove('dragging'));
-    element.addEventListener('dragover', (event) => {
+    element.addEventListener('dragend', function () { element.classList.remove('dragging'); });
+    element.addEventListener('dragover', function (event) {
       event.preventDefault();
       event.stopPropagation();
       event.dataTransfer.dropEffect = 'move';
       element.classList.add('drag-over');
     });
-    element.addEventListener('dragleave', () => element.classList.remove('drag-over'));
-    element.addEventListener('drop', (event) => {
+    element.addEventListener('dragleave', function () { element.classList.remove('drag-over'); });
+    element.addEventListener('drop', function (event) {
       event.preventDefault();
       event.stopPropagation();
       element.classList.remove('drag-over');
@@ -344,10 +466,11 @@
       title.textContent = node.title;
       item.appendChild(folderIcon);
       item.appendChild(title);
-      item.addEventListener('click', (event) => {
+      item.addEventListener('click', function (event) {
         event.stopPropagation();
         openFolderId = node.id;
         hideContextPanel();
+        hideEditorPanel();
         renderBookmarkDropdown();
       });
     } else {
@@ -361,12 +484,12 @@
       title.textContent = node.title || node.url;
       item.appendChild(icon);
       item.appendChild(title);
-      item.addEventListener('click', () => navigate(node.url));
+      item.addEventListener('click', function () { navigate(node.url); });
     }
 
     if (compact) item.classList.add('dropdown-bookmark-item');
     setDragHandlers(item, node, parentFolderId);
-    item.addEventListener('contextmenu', (event) => {
+    item.addEventListener('contextmenu', function (event) {
       event.preventDefault();
       event.stopPropagation();
       showContextPanel(node.id);
@@ -375,16 +498,16 @@
   }
 
   function addDropToContainer(container, folderId) {
-    container.addEventListener('dragover', (event) => {
+    container.addEventListener('dragover', function (event) {
       if (event.target !== container) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
       container.classList.add('drag-over-container');
     });
-    container.addEventListener('dragleave', (event) => {
+    container.addEventListener('dragleave', function (event) {
       if (event.target === container) container.classList.remove('drag-over-container');
     });
-    container.addEventListener('drop', (event) => {
+    container.addEventListener('drop', function (event) {
       if (event.target !== container) return;
       event.preventDefault();
       container.classList.remove('drag-over-container');
@@ -395,7 +518,9 @@
 
   function renderBookmarks() {
     bookmarkBar.textContent = '';
-    bookmarkData.items.forEach((node) => bookmarkBar.appendChild(createBookmarkElement(node, null, false)));
+    bookmarkData.items.forEach(function (node) {
+      bookmarkBar.appendChild(createBookmarkElement(node, null, false));
+    });
     addDropToContainer(bookmarkBar, null);
     bookmarkBar.oncontextmenu = function (event) {
       if (event.target !== bookmarkBar) return;
@@ -423,10 +548,10 @@
     rootButton.type = 'button';
     rootButton.className = 'bookmark-path-button';
     rootButton.textContent = '북마크';
-    rootButton.addEventListener('click', () => { openFolderId = null; renderBookmarkDropdown(); });
+    rootButton.addEventListener('click', function () { openFolderId = null; renderBookmarkDropdown(); });
     header.appendChild(rootButton);
 
-    path.forEach((folder, index) => {
+    path.forEach(function (folder, index) {
       const separator = document.createElement('span');
       separator.className = 'bookmark-path-separator';
       separator.textContent = '›';
@@ -436,7 +561,7 @@
       button.className = 'bookmark-path-button';
       button.textContent = folder.title;
       if (index === path.length - 1) button.classList.add('current');
-      button.addEventListener('click', () => { openFolderId = folder.id; renderBookmarkDropdown(); });
+      button.addEventListener('click', function () { openFolderId = folder.id; renderBookmarkDropdown(); });
       header.appendChild(button);
     });
 
@@ -445,13 +570,15 @@
     close.className = 'bookmark-dropdown-close';
     close.textContent = '×';
     close.title = '폴더 닫기';
-    close.addEventListener('click', () => { openFolderId = null; renderBookmarkDropdown(); });
+    close.addEventListener('click', function () { openFolderId = null; renderBookmarkDropdown(); });
     header.appendChild(close);
     bookmarkDropdown.appendChild(header);
 
     const list = document.createElement('div');
     list.className = 'bookmark-dropdown-list';
-    found.node.children.forEach((node) => list.appendChild(createBookmarkElement(node, found.node.id, true)));
+    found.node.children.forEach(function (node) {
+      list.appendChild(createBookmarkElement(node, found.node.id, true));
+    });
     if (!found.node.children.length) {
       const empty = document.createElement('div');
       empty.className = 'bookmark-folder-empty';
@@ -468,19 +595,12 @@
     syncBrowserBoundsSoon();
   }
 
-  function hideContextPanel() {
-    bookmarkContextPanel.hidden = true;
-    bookmarkContextPanel.textContent = '';
-    contextTargetId = null;
-    syncBrowserBoundsSoon();
-  }
-
   function contextButton(label, handler) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'bookmark-context-button';
     button.textContent = label;
-    button.addEventListener('click', () => {
+    button.addEventListener('click', function () {
       hideContextPanel();
       handler();
     });
@@ -488,26 +608,26 @@
   }
 
   function showContextPanel(id, emptyFolderArea) {
-    contextTargetId = id || null;
+    hideEditorPanel();
     bookmarkContextPanel.textContent = '';
     bookmarkContextPanel.hidden = false;
     const found = id ? findNode(id) : null;
     const node = found ? found.node : null;
 
     if (node && node.type === 'bookmark') {
-      bookmarkContextPanel.appendChild(contextButton('열기', () => navigate(node.url)));
-      bookmarkContextPanel.appendChild(contextButton('새 탭에서 열기', () => send('browser:new-tab', node.url)));
-      bookmarkContextPanel.appendChild(contextButton('수정…', () => editNode(node.id)));
-      bookmarkContextPanel.appendChild(contextButton('새 폴더…', () => createFolder(parentFolderIdOf(node.id))));
-      bookmarkContextPanel.appendChild(contextButton('삭제', () => deleteNode(node.id)));
+      bookmarkContextPanel.appendChild(contextButton('열기', function () { navigate(node.url); }));
+      bookmarkContextPanel.appendChild(contextButton('새 탭에서 열기', function () { send('browser:new-tab', node.url); }));
+      bookmarkContextPanel.appendChild(contextButton('수정…', function () { editNode(node.id); }));
+      bookmarkContextPanel.appendChild(contextButton('새 폴더…', function () { createFolder(parentFolderIdOf(node.id)); }));
+      bookmarkContextPanel.appendChild(contextButton('삭제', function () { showDeleteConfirm(node.id); }));
     } else if (node && node.type === 'folder' && !emptyFolderArea) {
-      bookmarkContextPanel.appendChild(contextButton('열기', () => { openFolderId = node.id; renderBookmarkDropdown(); }));
-      bookmarkContextPanel.appendChild(contextButton('수정…', () => editNode(node.id)));
-      bookmarkContextPanel.appendChild(contextButton('하위 폴더 만들기…', () => createFolder(node.id)));
-      bookmarkContextPanel.appendChild(contextButton('삭제', () => deleteNode(node.id)));
+      bookmarkContextPanel.appendChild(contextButton('열기', function () { openFolderId = node.id; renderBookmarkDropdown(); }));
+      bookmarkContextPanel.appendChild(contextButton('수정…', function () { editNode(node.id); }));
+      bookmarkContextPanel.appendChild(contextButton('하위 폴더 만들기…', function () { createFolder(node.id); }));
+      bookmarkContextPanel.appendChild(contextButton('삭제', function () { showDeleteConfirm(node.id); }));
     } else {
       const parentFolderId = node && node.type === 'folder' ? node.id : null;
-      bookmarkContextPanel.appendChild(contextButton('새 폴더…', () => createFolder(parentFolderId)));
+      bookmarkContextPanel.appendChild(contextButton('새 폴더…', function () { createFolder(parentFolderId); }));
     }
 
     bookmarkContextPanel.appendChild(contextButton('닫기', hideContextPanel));
@@ -522,7 +642,7 @@
     else bookmarkData.items.push({
       id: newNodeId('b'),
       type: 'bookmark',
-      url,
+      url: url,
       title: currentState.title || url,
       favicon: faviconForUrl(url)
     });
@@ -531,7 +651,7 @@
 
   function updateFaviconsInNodes(nodes, payload) {
     let changed = false;
-    nodes.forEach((node) => {
+    nodes.forEach(function (node) {
       if (node.type === 'folder') {
         if (updateFaviconsInNodes(node.children, payload)) changed = true;
       } else if (node.url === payload.url || urlOrigin(node.url) === urlOrigin(payload.url)) {
@@ -558,7 +678,7 @@
     width = Math.min(preferredTabWidth, width);
     if (width < minimumTabWidth) width = minimumTabWidth;
     const iconOnly = width <= iconOnlyThreshold;
-    items.forEach((item) => {
+    items.forEach(function (item) {
       item.style.flexBasis = width + 'px';
       item.style.width = width + 'px';
       item.classList.toggle('icon-only', iconOnly);
@@ -568,7 +688,7 @@
   function renderTabs(state) {
     tabState = state || { activeTabId: null, tabs: [] };
     tabList.textContent = '';
-    tabState.tabs.forEach((tab) => {
+    tabState.tabs.forEach(function (tab) {
       const item = document.createElement('div');
       item.className = 'tab-item' + (tab.id === tabState.activeTabId ? ' active' : '');
       item.title = tab.title || tab.url || '새 탭';
@@ -582,26 +702,26 @@
       const title = document.createElement('span');
       title.className = 'tab-title';
       title.textContent = tab.title || '새 탭';
-      title.addEventListener('click', () => send('browser:switch-tab', tab.id));
+      title.addEventListener('click', function () { send('browser:switch-tab', tab.id); });
 
       const close = document.createElement('button');
       close.className = 'tab-close';
       close.type = 'button';
       close.title = '탭 닫기 (Ctrl+W)';
       close.textContent = '×';
-      close.addEventListener('click', (event) => {
+      close.addEventListener('click', function (event) {
         event.stopPropagation();
         send('browser:close-tab', tab.id);
       });
 
-      item.addEventListener('click', () => send('browser:switch-tab', tab.id));
+      item.addEventListener('click', function () { send('browser:switch-tab', tab.id); });
       item.appendChild(icon);
       item.appendChild(title);
       item.appendChild(close);
       tabList.appendChild(item);
     });
     tabList.appendChild(newTabButton);
-    window.requestAnimationFrame(() => { layoutTabs(); ensureActiveTabVisible(); });
+    window.requestAnimationFrame(function () { layoutTabs(); ensureActiveTabVisible(); });
   }
 
   function updateNavigationState(state) {
@@ -632,17 +752,8 @@
     send('browser:navigate', url);
   }
 
-  function syncBrowserBounds() {
-    const rect = browserPlaceholder.getBoundingClientRect();
-    send('browser:bounds', { x: rect.left, y: rect.top, width: rect.width, height: rect.height });
-  }
-
-  function syncBrowserBoundsSoon() {
-    window.requestAnimationFrame(syncBrowserBounds);
-  }
-
-  newTabButton.addEventListener('click', () => send('browser:new-tab', homeUrl));
-  tabList.addEventListener('wheel', (event) => {
+  newTabButton.addEventListener('click', function () { send('browser:new-tab', homeUrl); });
+  tabList.addEventListener('wheel', function (event) {
     if (tabList.scrollWidth <= tabList.clientWidth) return;
     const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
     if (!delta) return;
@@ -650,26 +761,26 @@
     tabList.scrollLeft += delta;
   }, { passive: false });
 
-  backButton.addEventListener('click', () => send('browser:back'));
-  forwardButton.addEventListener('click', () => send('browser:forward'));
-  reloadButton.addEventListener('click', () => send('browser:reload'));
-  hardReloadButton.addEventListener('click', () => send('browser:hard-reload'));
-  homeButton.addEventListener('click', () => {
+  backButton.addEventListener('click', function () { send('browser:back'); });
+  forwardButton.addEventListener('click', function () { send('browser:forward'); });
+  reloadButton.addEventListener('click', function () { send('browser:reload'); });
+  hardReloadButton.addEventListener('click', function () { send('browser:hard-reload'); });
+  homeButton.addEventListener('click', function () {
     addressInput.value = homeUrl;
     send('browser:home');
   });
   bookmarkButton.addEventListener('click', toggleBookmark);
 
-  addressInput.addEventListener('focus', () => {
+  addressInput.addEventListener('focus', function () {
     isEditingAddress = true;
     addressInput.select();
   });
-  addressInput.addEventListener('input', () => { isEditingAddress = true; });
-  addressInput.addEventListener('blur', () => {
+  addressInput.addEventListener('input', function () { isEditingAddress = true; });
+  addressInput.addEventListener('blur', function () {
     isEditingAddress = false;
     if (currentState.url) addressInput.value = currentState.url;
   });
-  addressInput.addEventListener('keydown', (event) => {
+  addressInput.addEventListener('keydown', function (event) {
     if (event.key === 'Enter') {
       event.preventDefault();
       const requested = addressInput.value;
@@ -691,19 +802,19 @@
   window.dkBrowser.on('browser:state', updateNavigationState);
   window.dkBrowser.on('browser:tabs', renderTabs);
   window.dkBrowser.on('browser:favicon', handleFavicon);
-  window.dkBrowser.on('browser:focus-address', () => {
+  window.dkBrowser.on('browser:focus-address', function () {
     isEditingAddress = true;
     addressInput.focus();
     addressInput.select();
   });
   window.dkBrowser.on('browser:toggle-bookmark', toggleBookmark);
-  window.dkBrowser.on('browser:delete-bookmark', (url) => {
+  window.dkBrowser.on('browser:delete-bookmark', function (url) {
     const bookmark = findBookmarkByUrl(url);
-    if (bookmark) deleteNode(bookmark.id);
+    if (bookmark) showDeleteConfirm(bookmark.id);
   });
   window.dkBrowser.on('browser:request-bounds', syncBrowserBounds);
 
-  window.addEventListener('keydown', (event) => {
+  window.addEventListener('keydown', function (event) {
     const key = event.key.toLowerCase();
     if (event.ctrlKey && !event.shiftKey && key === 'l') {
       event.preventDefault();
@@ -748,18 +859,18 @@
     }
   });
 
-  window.addEventListener('resize', () => {
+  window.addEventListener('resize', function () {
     syncBrowserBounds();
-    window.requestAnimationFrame(() => { layoutTabs(); ensureActiveTabVisible(); });
+    window.requestAnimationFrame(function () { layoutTabs(); ensureActiveTabVisible(); });
   });
   if (window.ResizeObserver) {
-    new ResizeObserver(() => {
+    new ResizeObserver(function () {
       syncBrowserBounds();
       layoutTabs();
     }).observe(browserPlaceholder);
   }
 
-  document.addEventListener('click', (event) => {
+  document.addEventListener('click', function (event) {
     if (!bookmarkContextPanel.hidden && !bookmarkContextPanel.contains(event.target)) hideContextPanel();
   });
 
