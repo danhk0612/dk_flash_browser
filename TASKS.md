@@ -47,30 +47,34 @@ Status: complete, user-accepted in current form, and merged
 
 ## T05 — Portable runtime validation
 
-Status: implementation complete; Windows runtime validation required
+Status: complete, user-accepted, and merged
 
-- `scripts/validate-portable.ps1` validates the packaged x86 layout.
-- Validate `DKFlashBrowser.exe` and `Flash\pepflashplayer.dll` PE machine type as x86 (`0x014C`).
-- Validate required portable files and explicit `UserData` redirection.
-- Validate the persistent browser partition.
-- `-PrepareIsolationCopies` creates independent `portable-A` / `portable-B` copies for profile-isolation testing.
+- Packaged executable and Flash DLL statically validated as x86 (`0x014C`).
+- Portable package layout validation passed.
+- Independent A/B portable profile isolation passed.
+- Session-cookie compatibility layer added under each portable profile so tested legacy login survives restart.
+- Physical 32-bit Windows validation: `NOT AVAILABLE` unless a real 32-bit machine/VM is later provided.
 - Detailed validation procedure: `docs/PORTABLE_VALIDATION.md`.
-
-Windows validation before merge:
-
-- Build the package with `scripts/package-win32.ps1`.
-- Run `scripts/validate-portable.ps1` and confirm static validation passes.
-- Launch the browser from a copied package directory without the repository/runtime bootstrap environment.
-- Move/copy the package to another writable directory and confirm it still launches.
-- Verify `UserData` and `Logs` stay inside the portable package.
-- Run the A/B profile isolation procedure and confirm bookmarks/login/history do not leak between directories.
-- Confirm packaged Flash, tabs, navigation, bookmarks and input still work on 64-bit Windows.
-- Physically validate on 32-bit Windows if an environment is available; otherwise record `NOT AVAILABLE` rather than claiming a pass.
 
 ## T06 — Configuration finalization
 
-- Finalize the minimal external configuration contract.
-- Keep the start/home URL editable without rebuilding.
+Status: implementation complete; awaiting acceptance
+
+External configuration contract is intentionally minimal:
+
+```ini
+[Browser]
+StartUrl=http://legacy-server/
+```
+
+- `Browser.StartUrl` controls startup, Home/Alt+Home, and the initial URL for manually created new tabs.
+- Default is `about:blank` if the setting is absent or empty.
+- `config.ini` is read at application startup from beside the portable executable/project root.
+- Editing `config.ini` does not require rebuilding.
+- Unknown sections/keys are ignored.
+- Full contract: `docs/CONFIGURATION.md`.
+
+No additional runtime knobs are exposed in T06. Flash/runtime/profile/session behavior stays fixed to avoid unsupported legacy-runtime combinations.
 
 ## T07 — Real legacy-system validation
 
