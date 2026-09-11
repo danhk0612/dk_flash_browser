@@ -13,34 +13,30 @@
   const bookmarkButton = document.getElementById('bookmark-button');
   const addressInput = document.getElementById('address-input');
   const bookmarkBar = document.getElementById('bookmark-bar');
+  const browserPlaceholder = document.getElementById('browser-placeholder');
   const bookmarkContextMenu = document.getElementById('bookmark-context-menu');
   const bookmarkDeleteButton = document.getElementById('bookmark-delete-button');
-  const webview = document.getElementById('browser-view');
 
-  let initialNavigationStarted = false;
+  let currentState = {
+    url: '',
+    title: '',
+    canGoBack: false,
+    canGoForward: false,
+    isLoading: false
+  };
   let isEditingAddress = false;
   let pendingAddress = '';
   let contextBookmarkUrl = '';
 
-  function normalizeUrl(value) {
-    const input = String(value || '').trim();
-    if (!input) {
-      return '';
-    }
-
-    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(input)) {
-      return input;
-    }
-
-    return 'http://' + input;
+  function send(channel, payload) {
+    window.dkBrowser.send(channel, payload);
   }
 
-  function currentUrl() {
-    try {
-      return webview.getURL() || '';
-    } catch (_error) {
-      return '';
-    }
+  function normalizeUrl(value) {
+    const input = String(value || '').trim();
+    if (!input) return '';
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(input)) return input;
+    return 'http://' + input;
   }
 
   function loadBookmarks() {
@@ -64,35 +60,27 @@
   function showBookmarkContextMenu(event, bookmarkUrl) {
     contextBookmarkUrl = bookmarkUrl;
     bookmarkContextMenu.hidden = false;
-
     const menuWidth = bookmarkContextMenu.offsetWidth;
     const menuHeight = bookmarkContextMenu.offsetHeight;
-    const left = Math.min(event.clientX, Math.max(0, window.innerWidth - menuWidth - 4));
-    const top = Math.min(event.clientY, Math.max(0, window.innerHeight - menuHeight - 4));
-
-    bookmarkContextMenu.style.left = left + 'px';
-    bookmarkContextMenu.style.top = top + 'px';
+    bookmarkContextMenu.style.left = Math.min(event.clientX, Math.max(0, window.innerWidth - menuWidth - 4)) + 'px';
+    bookmarkContextMenu.style.top = Math.min(event.clientY, Math.max(0, window.innerHeight - menuHeight - 4)) + 'px';
   }
 
   function removeBookmark(url) {
-    const next = loadBookmarks().filter((entry) => entry.url !== url);
-    saveBookmarks(next);
+    saveBookmarks(loadBookmarks().filter((entry) => entry.url !== url));
     renderBookmarks();
     updateBookmarkButton();
   }
 
   function updateBookmarkButton() {
-    const url = currentUrl();
-    const exists = loadBookmarks().some((bookmark) => bookmark.url === url);
+    const exists = loadBookmarks().some((bookmark) => bookmark.url === currentState.url);
     bookmarkButton.textContent = exists ? '★' : '☆';
     bookmarkButton.title = exists ? '북마크 제거 (Ctrl+D)' : '북마크 추가 (Ctrl+D)';
   }
 
   function renderBookmarks() {
-    const bookmarks = loadBookmarks();
     bookmarkBar.textContent = '';
-
-    bookmarks.forEach((bookmark) => {
+    loadBookmarks().forEach((bookmark) => {
       const item = document.createElement('button');
       item.className = 'bookmark-item';
       item.type = 'button';
@@ -109,78 +97,69 @@
   }
 
   function toggleBookmark() {
-    const url = currentUrl();
-    if (!url || url === 'about:blank') {
-      return;
-    }
+    const url = currentState.url;
+    if (!url || url === 'about:blank') return;
 
     const bookmarks = loadBookmarks();
     const index = bookmarks.findIndex((bookmark) => bookmark.url === url);
-
     if (index >= 0) {
       bookmarks.splice(index, 1);
     } else {
-      bookmarks.push({
-        url: url,
-        title: webview.getTitle() || url
-      });
+      bookmarks.push({ url: url, title: currentState.title || url });
     }
-
     saveBookmarks(bookmarks);
     renderBookmarks();
     updateBookmarkButton();
   }
 
-  function updateNavigationState() {
-    try {
-      backButton.disabled = !webview.canGoBack();
-      forwardButton.disabled = !webview.canGoForward();
-    } catch (_error) {
-      backButton.disabled = true;
-      forwardButton.disabled = true;
-    }
+  function updateNavigationState(state) {
+    currentState = Object.assign({}, currentState, state || {});
+    backButton.disabled = !currentState.canGoBack;
+    forwardButton.disabled = !currentState.canGoForward;
 
-    const url = currentUrl();
-    if (url && !isEditingAddress && !pendingAddress && document.activeElement !== addressInput) {
-      addressInput.value = url;
+    if (currentState.url && !isEditingAddress && !pendingAddress && document.activeElement !== addressInput) {
+      addressInput.value = currentState.url;
     }
+    if (pendingAddress && currentState.url === pendingAddress) pendingAddress = '';
     updateBookmarkButton();
   }
 
   function navigate(value) {
     const url = normalizeUrl(value);
-    if (!url) {
-      return;
-    }
-
+    if (!url) return;
     pendingAddress = url;
     addressInput.value = url;
-    webview.loadURL(url);
+    send('browser:navigate', url);
+  }
+
+  function syncBrowserBounds() {
+    const rect = browserPlaceholder.getBoundingClientRect();
+    send('browser:bounds', {
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height
+    });
   }
 
   backButton.addEventListener('click', () => {
     pendingAddress = '';
-    if (webview.canGoBack()) {
-      webview.goBack();
-    }
+    send('browser:back');
   });
-
   forwardButton.addEventListener('click', () => {
     pendingAddress = '';
-    if (webview.canGoForward()) {
-      webview.goForward();
-    }
+    send('browser:forward');
   });
-
-  reloadButton.addEventListener('click', () => webview.reload());
-  hardReloadButton.addEventListener('click', () => webview.reloadIgnoringCache());
-  homeButton.addEventListener('click', () => navigate(homeUrl));
+  reloadButton.addEventListener('click', () => send('browser:reload'));
+  hardReloadButton.addEventListener('click', () => send('browser:hard-reload'));
+  homeButton.addEventListener('click', () => {
+    pendingAddress = homeUrl;
+    send('browser:home');
+  });
   bookmarkButton.addEventListener('click', toggleBookmark);
 
   bookmarkDeleteButton.addEventListener('click', () => {
-    if (contextBookmarkUrl) {
-      removeBookmark(contextBookmarkUrl);
-    }
+    if (contextBookmarkUrl) removeBookmark(contextBookmarkUrl);
     hideBookmarkContextMenu();
   });
 
@@ -188,126 +167,81 @@
     isEditingAddress = true;
     addressInput.select();
   });
-
   addressInput.addEventListener('input', () => {
     isEditingAddress = true;
   });
-
   addressInput.addEventListener('blur', () => {
     isEditingAddress = false;
-    if (!pendingAddress) {
-      const url = currentUrl();
-      if (url) {
-        addressInput.value = url;
-      }
-    }
+    if (!pendingAddress && currentState.url) addressInput.value = currentState.url;
   });
-
   addressInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
-      const requestedUrl = addressInput.value;
       event.preventDefault();
       isEditingAddress = false;
-      navigate(requestedUrl);
+      navigate(addressInput.value);
       addressInput.blur();
-      webview.focus();
+      send('browser:focus-page');
       return;
     }
-
     if (event.key === 'Escape') {
       event.preventDefault();
       isEditingAddress = false;
       pendingAddress = '';
-      addressInput.value = currentUrl();
+      addressInput.value = currentState.url || '';
       addressInput.blur();
-      webview.focus();
+      send('browser:focus-page');
     }
   });
 
-  webview.addEventListener('dom-ready', () => {
-    if (!initialNavigationStarted) {
-      initialNavigationStarted = true;
-      navigate(homeUrl);
-    }
-    updateNavigationState();
+  window.dkBrowser.on('browser:state', updateNavigationState);
+  window.dkBrowser.on('browser:focus-address', () => {
+    isEditingAddress = true;
+    addressInput.focus();
+    addressInput.select();
   });
-
-  webview.addEventListener('did-navigate', () => {
-    pendingAddress = '';
-    updateNavigationState();
-  });
-  webview.addEventListener('did-navigate-in-page', () => {
-    pendingAddress = '';
-    updateNavigationState();
-  });
-  webview.addEventListener('did-fail-load', () => {
-    pendingAddress = '';
-    updateNavigationState();
-  });
-  webview.addEventListener('did-stop-loading', updateNavigationState);
-  webview.addEventListener('page-title-updated', updateBookmarkButton);
-
-  window.dkFlashBrowserCommand = function (command) {
-    if (command === 'focus-address') {
-      isEditingAddress = true;
-      addressInput.focus();
-      addressInput.select();
-      return;
-    }
-
-    if (command === 'toggle-bookmark') {
-      toggleBookmark();
-      return;
-    }
-
-    if (command === 'home') {
-      navigate(homeUrl);
-    }
-  };
+  window.dkBrowser.on('browser:toggle-bookmark', toggleBookmark);
 
   window.addEventListener('keydown', (event) => {
     if (event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'l') {
       event.preventDefault();
-      isEditingAddress = true;
       addressInput.focus();
       addressInput.select();
       return;
     }
-
     if (event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'd') {
       event.preventDefault();
       toggleBookmark();
       return;
     }
-
-    if ((event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'r') ||
-        (event.ctrlKey && event.key === 'F5')) {
+    if ((event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'r') || (event.ctrlKey && event.key === 'F5')) {
       event.preventDefault();
-      webview.reloadIgnoringCache();
+      send('browser:hard-reload');
       return;
     }
-
     if ((event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === 'r') || event.key === 'F5') {
       event.preventDefault();
-      webview.reload();
+      send('browser:reload');
       return;
     }
-
     if (event.altKey && event.key === 'Home') {
       event.preventDefault();
-      navigate(homeUrl);
+      send('browser:home');
     }
   });
 
   window.addEventListener('mousedown', (event) => {
-    if (!bookmarkContextMenu.hidden && !bookmarkContextMenu.contains(event.target)) {
-      hideBookmarkContextMenu();
-    }
+    if (!bookmarkContextMenu.hidden && !bookmarkContextMenu.contains(event.target)) hideBookmarkContextMenu();
+  });
+  window.addEventListener('blur', hideBookmarkContextMenu);
+  window.addEventListener('resize', () => {
+    hideBookmarkContextMenu();
+    syncBrowserBounds();
   });
 
-  window.addEventListener('blur', hideBookmarkContextMenu);
-  window.addEventListener('resize', hideBookmarkContextMenu);
+  if (window.ResizeObserver) {
+    new ResizeObserver(syncBrowserBounds).observe(browserPlaceholder);
+  }
 
   renderBookmarks();
-  webview.src = 'about:blank';
+  syncBrowserBounds();
 })();
