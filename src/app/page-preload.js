@@ -6,8 +6,24 @@ window.addEventListener('mousedown', () => {
   ipcRenderer.send('browser:page-mousedown');
 }, true);
 
-// Ctrl+wheel is handled by Electron's webContents "zoom-changed" event in
-// bootstrap.js. Do not prevent or duplicate that native event here.
+// General HTML page Ctrl+wheel zoom. Pepper Flash may consume wheel input before
+// it reaches the page, so this intentionally guarantees only normal page content.
+// Throttle touchpad/high-resolution wheel streams so one gesture does not jump
+// through many zoom levels at once.
+let lastZoomWheelAt = 0;
+window.addEventListener('wheel', (event) => {
+  if (!event.ctrlKey || !event.deltaY) return;
+
+  const now = Date.now();
+  if (now - lastZoomWheelAt < 90) {
+    event.preventDefault();
+    return;
+  }
+  lastZoomWheelAt = now;
+
+  event.preventDefault();
+  ipcRenderer.send(event.deltaY < 0 ? 'browser:feature-zoom-in' : 'browser:feature-zoom-out');
+}, { capture: true, passive: false });
 
 function resolveCandidate(value) {
   const raw = String(value || '').trim();
