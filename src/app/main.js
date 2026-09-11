@@ -133,7 +133,7 @@ function installBrowserHandlers(contents) {
     }
     if (input.alt && key === 'home') {
       event.preventDefault();
-      contents.loadURL(browserConfig.startUrl);
+      contents.loadURL(browserConfig.startUrl).catch(() => {});
     }
   });
 
@@ -177,11 +177,9 @@ function createBrowserView() {
     }
   });
   mainWindow.setBrowserView(browserView);
-  const contentSize = mainWindow.getContentSize();
-  browserView.setBounds({ x: 0, y: 75, width: contentSize[0], height: Math.max(1, contentSize[1] - 75) });
-  browserView.setAutoResize({ width: true, height: true });
   installBrowserHandlers(browserView.webContents);
-  browserView.webContents.loadURL(browserConfig.startUrl);
+  browserView.webContents.loadURL(browserConfig.startUrl).catch(() => {});
+  mainWindow.webContents.send('browser:request-bounds');
 }
 
 function createWindow() {
@@ -216,8 +214,9 @@ function createWindow() {
 ipcMain.on('browser:bounds', (_event, bounds) => {
   if (browserView) browserView.setBounds(normalizeBounds(bounds));
 });
+
 ipcMain.on('browser:navigate', (_event, url) => {
-  if (browserView && url) browserView.webContents.loadURL(url);
+  if (browserView && url) browserView.webContents.loadURL(url).catch(() => {});
 });
 ipcMain.on('browser:back', () => {
   if (browserView && browserView.webContents.canGoBack()) browserView.webContents.goBack();
@@ -232,10 +231,19 @@ ipcMain.on('browser:hard-reload', () => {
   if (browserView) browserView.webContents.reloadIgnoringCache();
 });
 ipcMain.on('browser:home', () => {
-  if (browserView) browserView.webContents.loadURL(browserConfig.startUrl);
+  if (browserView) browserView.webContents.loadURL(browserConfig.startUrl).catch(() => {});
 });
 ipcMain.on('browser:focus-page', () => {
   if (browserView) browserView.webContents.focus();
+});
+ipcMain.on('browser:bookmark-context', (_event, url) => {
+  if (!mainWindow || mainWindow.isDestroyed() || !url) return;
+  Menu.buildFromTemplate([
+    {
+      label: '북마크 삭제',
+      click: () => mainWindow.webContents.send('browser:delete-bookmark', url)
+    }
+  ]).popup({ window: mainWindow });
 });
 
 app.on('ready', createWindow);
