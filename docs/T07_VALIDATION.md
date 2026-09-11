@@ -68,10 +68,12 @@ Record PASS / FAIL / NOT USED for each applicable item:
 - Audio works when the legacy application uses audio.
 - File upload works when required.
 - Downloads work when required.
-- Direct image/media URL right-click download works when the page exposes such a URL.
-- Pepper Flash's native right-click menu is not expected to expose DK Flash Browser download commands.
-- `Ctrl+Shift+S` downloads the detected SWF when exactly one candidate exists.
-- When multiple SWF candidates exist, `Ctrl+Shift+S` opens a native selection menu and the selected SWF downloads.
+- Direct image/media downloads work when exposed by the page.
+- `Ctrl+Shift+S` opens the detected Flash list rather than silently choosing one SWF.
+- Multiple SWFs loaded through DOM or network requests appear as separate selectable entries when their URLs can be observed.
+- The toolbar function menu exposes Flash and image download lists.
+
+Pepper Flash's own native right-click menu is owned by the plugin and cannot be extended directly. Flash download is therefore best-effort and depends on a direct URL being observable either in the page DOM or Chromium network requests.
 
 ## D. Tabs / popup / zoom behavior
 
@@ -83,10 +85,11 @@ Record PASS / FAIL / NOT USED for each applicable item:
 - Confirm address/title/favicons remain synchronized with the active tab.
 - Confirm the native window title follows the active page as `페이지 제목 - DK Flash Browser`.
 - Confirm each tab starts at 100% zoom.
-- Confirm native `Ctrl + +`, `Ctrl + -`, and `Ctrl + 0` work even when Flash owns keyboard focus.
-- Confirm `Ctrl + mouse wheel` works on ordinary HTML page content; Pepper Flash may consume wheel input before page JavaScript receives it.
-- Confirm the toolbar indicator reflects the active tab zoom (for example `100%`, `125%`).
+- Confirm `Ctrl + +`, `Ctrl + -`, and `Ctrl + 0` adjust/reset zoom while the browser window is focused.
+- Confirm `Ctrl + mouse wheel` changes zoom where Electron receives the native zoom event, including Flash pages if supported by the plugin/runtime combination.
+- Confirm the toolbar indicator reflects the BrowserView's actual zoom factor (for example `100%`, `125%`).
 - Confirm clicking the zoom indicator resets the active tab to 100%.
+- Confirm the function menu can zoom in, zoom out, and reset to 100%.
 - Confirm zoom remains independent when switching between tabs.
 - Exercise target `_blank` / `window.open()` workflows used by the actual legacy site.
 
@@ -101,7 +104,8 @@ Use the browser normally for at least 20–30 minutes with a mixture of:
 - zoom changes;
 - tab create/switch/close;
 - Home/reload/hard reload;
-- bookmark use.
+- bookmark use;
+- feature-menu Flash/image download list opening.
 
 If the process exits unexpectedly, preserve:
 
