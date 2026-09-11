@@ -35,9 +35,7 @@ function writeBootstrapLog(type, message, error) {
       '[' + new Date().toISOString() + '] [' + type + '] ' + message + (details ? '\n' + details : '') + '\n',
       'utf8'
     );
-  } catch (_error) {
-    // Diagnostics must never prevent browser startup.
-  }
+  } catch (_error) {}
 }
 
 function readConfigText() {
@@ -51,7 +49,7 @@ function readConfigText() {
 
 function ensureDefaultStartUrl() {
   try {
-    let text = readConfigText();
+    const text = readConfigText();
     if (!text.trim()) {
       fs.writeFileSync(configPath, '[Browser]\r\nStartUrl=' + DEFAULT_START_URL + '\r\n', 'utf8');
       writeBootstrapLog('CONFIG', 'Created config.ini with fallback StartUrl=' + DEFAULT_START_URL);
@@ -143,10 +141,8 @@ function parseDefaultBookmarks() {
 function initializeDefaultBookmarks() {
   try {
     if (fs.existsSync(bookmarksPath)) return;
-
     const defaults = parseDefaultBookmarks();
     if (!defaults.length) return;
-
     fs.mkdirSync(userDataPath, { recursive: true });
     fs.writeFileSync(bookmarksPath, JSON.stringify({ version: 2, items: defaults }, null, 2), 'utf8');
     writeBootstrapLog('BOOKMARKS', 'Created first-run bookmarks: ' + String(defaults.length));
@@ -160,12 +156,10 @@ function validateFlashDll() {
     if (!fs.existsSync(flashPath)) {
       return { ok: false, reason: 'Flash DLL 파일을 찾을 수 없습니다.\n\n' + flashPath };
     }
-
     const stat = fs.statSync(flashPath);
     if (!stat.isFile() || stat.size < MIN_FLASH_SIZE) {
       return { ok: false, reason: 'Flash DLL 파일 크기 또는 형식이 올바르지 않습니다.\n\n' + flashPath };
     }
-
     const handle = fs.openSync(flashPath, 'r');
     try {
       const header = Buffer.alloc(4096);
@@ -184,7 +178,6 @@ function validateFlashDll() {
     } finally {
       fs.closeSync(handle);
     }
-
     writeBootstrapLog('FLASH-CHECK', 'Flash preflight passed. path=' + flashPath + ' size=' + String(stat.size));
     return { ok: true, reason: '' };
   } catch (error) {
@@ -224,12 +217,16 @@ function actualZoomFactor(contents) {
   }
 }
 
-function sendZoomState(contents) {
-  const factor = actualZoomFactor(contents);
-  const payload = { zoomFactor: factor, zoomPercent: Math.round(factor * 100) };
+function broadcastZoomFactor(factor) {
+  const numeric = Number(factor) || 1;
+  const payload = { zoomFactor: numeric, zoomPercent: Math.round(numeric * 100) };
   BrowserWindow.getAllWindows().forEach((win) => {
     if (win && !win.isDestroyed()) win.webContents.send('browser:zoom-state', payload);
   });
+}
+
+function sendZoomState(contents) {
+  broadcastZoomFactor(actualZoomFactor(contents));
 }
 
 function nearestZoomIndex(value) {
@@ -251,7 +248,12 @@ function setActualZoom(contents, factor) {
   const clamped = Math.max(ZOOM_LEVELS[0], Math.min(ZOOM_LEVELS[ZOOM_LEVELS.length - 1], numeric));
   try {
     contents.setZoomFactor(clamped);
-    sendZoomState(contents);
+    // Electron 6 may not report the new value synchronously. Publish the exact
+    // requested value immediately, then verify against webContents shortly after.
+    broadcastZoomFactor(clamped);
+    setTimeout(() => {
+      if (contents && !contents.isDestroyed()) sendZoomState(contents);
+    }, 80);
   } catch (error) {
     writeBootstrapLog('ZOOM', 'Failed to set actual zoom factor', error);
   }
@@ -284,11 +286,8 @@ function downloadMediaUrl(contents, url, fallback, title) {
     });
     if (!savePath || contents.isDestroyed()) return;
     contents.session.once('will-download', (_event, item) => {
-      try {
-        item.setSavePath(savePath);
-      } catch (error) {
-        writeBootstrapLog('MEDIA-DOWNLOAD', 'Failed to set media save path', error);
-      }
+      try { item.setSavePath(savePath); }
+      catch (error) { writeBootstrapLog('MEDIA-DOWNLOAD', 'Failed to set media save path', error); }
     });
     contents.downloadURL(url);
   } catch (error) {
@@ -426,32 +425,22 @@ function installNetworkMediaTracking(browserSession) {
 try {
   fs.mkdirSync(userDataPath, { recursive: true });
   app.setPath('userData', userDataPath);
-
   crashReporter.start({
     companyName: 'danhk0612',
     productName: 'DK Flash Browser',
     submitURL: 'http://127.0.0.1/',
     uploadToServer: false,
     ignoreSystemCrashHandler: false,
-    extra: {
-      runtime: 'electron-6.1.12',
-      purpose: 'legacy-flash-browser'
-    }
+    extra: { runtime: 'electron-6.1.12', purpose: 'legacy-flash-browser' }
   });
 
   let crashDirectory = '';
   try {
-    if (typeof crashReporter.getCrashesDirectory === 'function') {
-      crashDirectory = crashReporter.getCrashesDirectory() || '';
-    }
+    if (typeof crashReporter.getCrashesDirectory === 'function') crashDirectory = crashReporter.getCrashesDirectory() || '';
   } catch (error) {
     writeBootstrapLog('CRASH-REPORTER', 'Crash reporter started, but crash directory lookup failed', error);
   }
-
-  writeBootstrapLog(
-    'CRASH-REPORTER',
-    'Crash reporter enabled.' + (crashDirectory ? ' dumps=' + crashDirectory : ' dumps=under portable UserData')
-  );
+  writeBootstrapLog('CRASH-REPORTER', 'Crash reporter enabled.' + (crashDirectory ? ' dumps=' + crashDirectory : ' dumps=under portable UserData'));
 } catch (error) {
   writeBootstrapLog('CRASH-REPORTER', 'Failed to initialize crash reporter', error);
 }
@@ -467,7 +456,10 @@ app.on('ready', () => {
   }
 });
 
-app.on('browser-window-focus', () => registerNativeShortcuts());
+app.on('browser-window-focus', () => {
+  registerNativeShortcuts();
+  setTimeout(() => sendZoomState(activeBrowserViewContents()), 0);
+});
 app.on('browser-window-blur', () => unregisterNativeShortcuts());
 
 app.on('web-contents-created', (_event, contents) => {
@@ -500,6 +492,8 @@ app.on('web-contents-created', (_event, contents) => {
       }
     });
 
+    // Electron 6 emits zoom-changed for Ctrl+wheel only when Chromium receives
+    // that gesture. Pepper Flash may consume the wheel before this event fires.
     contents.on('zoom-changed', (event, direction) => {
       try {
         if (event && typeof event.preventDefault === 'function') event.preventDefault();
@@ -548,29 +542,21 @@ ipcMain.on('browser:page-mousedown', () => {
   }
 });
 
-ipcMain.on('browser:native-zoom-wheel', (event, direction) => {
-  try { changeActualZoom(event.sender, Number(direction) > 0 ? 1 : -1); }
-  catch (error) { writeBootstrapLog('ZOOM', 'Failed to handle preload wheel zoom', error); }
-});
-
+ipcMain.on('browser:request-zoom-state', () => sendZoomState(activeBrowserViewContents()));
 ipcMain.on('browser:flash-candidates', (event, urls) => {
   try {
-    if (!event || !event.sender) return;
-    mergeCandidates(flashCandidatesByContents, event.sender.id, urls);
+    if (event && event.sender) mergeCandidates(flashCandidatesByContents, event.sender.id, urls);
   } catch (error) {
     writeBootstrapLog('FLASH-DOWNLOAD', 'Failed to cache Flash candidates', error);
   }
 });
-
 ipcMain.on('browser:image-candidates', (event, urls) => {
   try {
-    if (!event || !event.sender) return;
-    mergeCandidates(imageCandidatesByContents, event.sender.id, urls);
+    if (event && event.sender) mergeCandidates(imageCandidatesByContents, event.sender.id, urls);
   } catch (error) {
     writeBootstrapLog('IMAGE-DOWNLOAD', 'Failed to cache image candidates', error);
   }
 });
-
 ipcMain.on('browser:feature-menu', showFeatureMenu);
 ipcMain.on('browser:feature-zoom-in', () => changeActualZoom(activeBrowserViewContents(), 1));
 ipcMain.on('browser:feature-zoom-out', () => changeActualZoom(activeBrowserViewContents(), -1));
@@ -580,22 +566,13 @@ app.on('before-quit', () => {
   app.isQuitting = true;
   unregisterNativeShortcuts();
 });
-
 app.on('renderer-process-crashed', (_event, webContents, killed) => {
   let url = '';
-  try {
-    if (webContents && !webContents.isDestroyed()) url = webContents.getURL() || '';
-  } catch (_error) {}
+  try { if (webContents && !webContents.isDestroyed()) url = webContents.getURL() || ''; } catch (_error) {}
   writeBootstrapLog('RENDERER-PROCESS-CRASHED', 'killed=' + String(!!killed) + ' url=' + url);
 });
-
-app.on('gpu-process-crashed', (_event, killed) => {
-  writeBootstrapLog('GPU-PROCESS-CRASHED', 'killed=' + String(!!killed));
-});
-
-process.on('exit', (code) => {
-  writeBootstrapLog('PROCESS-EXIT', 'Main process exit code=' + String(code));
-});
+app.on('gpu-process-crashed', (_event, killed) => writeBootstrapLog('GPU-PROCESS-CRASHED', 'killed=' + String(!!killed)));
+process.on('exit', (code) => writeBootstrapLog('PROCESS-EXIT', 'Main process exit code=' + String(code)));
 
 ensureDefaultStartUrl();
 initializeDefaultBookmarks();
