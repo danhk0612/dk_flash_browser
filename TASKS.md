@@ -26,55 +26,46 @@ Status: complete and validated
 
 Status: complete, validated, and merged
 
-- Custom browser shell with address bar, navigation, normal/hard reload, Home, local bookmarks, context download and browser shortcuts.
-- Native `BrowserView` page rendering preserves the input-stable path established after T01.
-- Shared persistent browser session: `persist:dk-flash-browser`.
-
 ## T03 — Tabs
 
 Status: complete, user-accepted, and merged
 
 - One independent `BrowserView` per tab.
 - All tabs share `persist:dk-flash-browser` cookies/storage/session.
-- `+` new-tab button; new tabs open `Browser.StartUrl`.
-- Tab selection and close.
-- Active-tab URL/title/back/forward/loading state synchronization.
-- T02 Home, bookmarks, normal/hard reload, Flash, context download and input behavior preserved per active tab.
-- Ctrl+T: new tab.
-- Ctrl+W: close active tab; closing the final tab closes the browser window.
-- Ctrl+Tab / Ctrl+Shift+Tab: cycle tabs.
-- Runtime stability logging/guards added for renderer/GPU/main-process failures.
-- External modern-site crash reproduction was explicitly deferred by the user; diagnostics remain available under `Logs/browser.log`.
+- Runtime crash logging remains available under `Logs/browser.log`.
+- The user explicitly deferred reproduction of the external modern-site crash.
 
 ## T04 — Legacy popup / new-window behavior
 
-Status: implementation complete; awaiting Windows validation
+Status: complete, user-accepted in current form, and merged
 
-- Intercept legacy Chromium/Electron `new-window` requests from each tab.
-- Route `target="_blank"` and `window.open()` requests into a DK Flash Browser tab instead of an unmanaged Electron window.
-- Preserve the same `persist:dk-flash-browser` session, cookies and login state in routed tabs.
-- Page link context menu includes `새 탭에서 링크 열기`.
-- Bookmark context menu includes `새 탭에서 열기` and `북마크 삭제`.
-- Log routed requests with the `NEW-WINDOW` tag in `Logs/browser.log`.
-
-Windows validation before merge:
-
-- Click a normal `target="_blank"` link and confirm it opens as a DK Flash Browser tab.
-- Trigger a legacy `window.open()` popup and confirm it opens as a DK Flash Browser tab.
-- Confirm the original tab remains intact after the new tab opens.
-- Confirm login/session state is shared in the routed tab.
-- Confirm Flash content works in a routed tab where applicable.
-- Confirm link right-click -> `새 탭에서 링크 열기`.
-- Confirm bookmark right-click -> `새 탭에서 열기` and `북마크 삭제`.
-- Confirm input, Home, navigation and reload behavior remain stable after popup routing.
-- If a legacy popup depends on `window.opener` or a returned popup handle and behaves differently, record the exact workflow before merge so it can be handled explicitly.
+- Current implementation routes legacy `target="_blank"` / `window.open()` requests into DK Flash Browser tabs.
+- User clarified that a future implementation may keep real window requests as lightweight content-only windows while ordinary tab requests remain tabs.
+- No T04 rewrite is required unless a real legacy workflow breaks or the product is later refined to preserve the tab/window distinction.
+- All routed content shares the same `persist:dk-flash-browser` session.
+- Link and bookmark context menus include new-tab actions.
 
 ## T05 — Portable runtime validation
 
-- Verify copied-folder execution.
-- Verify portable profile isolation.
-- Verify on 32-bit Windows.
-- Verify on 64-bit Windows using the same x86 build.
+Status: implementation complete; Windows runtime validation required
+
+- `scripts/validate-portable.ps1` validates the packaged x86 layout.
+- Validate `DKFlashBrowser.exe` and `Flash\pepflashplayer.dll` PE machine type as x86 (`0x014C`).
+- Validate required portable files and explicit `UserData` redirection.
+- Validate the persistent browser partition.
+- `-PrepareIsolationCopies` creates independent `portable-A` / `portable-B` copies for profile-isolation testing.
+- Detailed validation procedure: `docs/PORTABLE_VALIDATION.md`.
+
+Windows validation before merge:
+
+- Build the package with `scripts/package-win32.ps1`.
+- Run `scripts/validate-portable.ps1` and confirm static validation passes.
+- Launch the browser from a copied package directory without the repository/runtime bootstrap environment.
+- Move/copy the package to another writable directory and confirm it still launches.
+- Verify `UserData` and `Logs` stay inside the portable package.
+- Run the A/B profile isolation procedure and confirm bookmarks/login/history do not leak between directories.
+- Confirm packaged Flash, tabs, navigation, bookmarks and input still work on 64-bit Windows.
+- Physically validate on 32-bit Windows if an environment is available; otherwise record `NOT AVAILABLE` rather than claiming a pass.
 
 ## T06 — Configuration finalization
 
