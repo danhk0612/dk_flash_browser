@@ -28,6 +28,7 @@ The application also runs on supported x64 Windows systems through WoW64.
 - Best-effort image/media downloads
 - Best-effort Flash SWF download list through the feature menu / `Ctrl+Shift+S` when direct SWF URLs are observable
 - Page zoom with keyboard shortcuts and toolbar percentage display
+- Custom DK Flash Browser application icon for the executable, window and taskbar
 - No Chrome sign-in, Google Sync, Chrome Web Store or account system
 
 ## Important limitations
@@ -132,9 +133,16 @@ dist\DKFlashBrowser-win32-ia32\
 dist\DKFlashBrowser-1.0.0-win32-ia32.zip
 ```
 
-The portable directory contains the executable, local configuration, Flash DLL, portable profile directory, application resources, README, license/notices, and `VERSION.txt`.
+The packaging script also:
 
-`dist\` is ignored by Git.
+- generates a 16/24/32/48/64/128/256 px `DKFlashBrowser.ico` from source drawing instructions in `scripts\generate-icon.ps1`;
+- downloads and caches Electron `rcedit` v2.0.0 x86 under `.runtime\tools` when needed;
+- embeds the icon and DK Flash Browser 1.0.0 product/version resources into `DKFlashBrowser.exe`;
+- copies the ICO beside the executable so the BrowserWindow can use the same icon explicitly.
+
+The portable directory contains the executable, custom icon, local configuration, Flash DLL, portable profile directory, application resources, README, license/notices, and `VERSION.txt`.
+
+`dist\` and `.runtime\` are ignored by Git.
 
 ## Validate the portable package
 
@@ -148,10 +156,13 @@ The validator checks:
 
 - `DKFlashBrowser.exe` is x86/PE32
 - Pepper Flash DLL is x86/PE32
+- the generated ICO is valid and contains multiple sizes
+- executable ProductName/FileVersion resources match DK Flash Browser 1.0.0
 - required portable files/directories exist
 - packaged application version matches `VERSION.txt`
 - portable user-data redirection is present
 - persistent browser partition is present
+- the packaged BrowserWindow references `DKFlashBrowser.ico`
 
 To prepare two independent copies for profile-isolation testing:
 
