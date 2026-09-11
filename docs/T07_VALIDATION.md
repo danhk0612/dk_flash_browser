@@ -86,14 +86,13 @@ Pepper Flash's own native right-click menu is owned by the plugin. The attempted
 - Confirm the native window title follows the active page as `페이지 제목 - DK Flash Browser`.
 - Confirm each tab starts at 100% zoom.
 - Confirm `Ctrl + +`, `Ctrl + -`, and `Ctrl + 0` adjust/reset zoom while the browser window is focused.
-- Confirm `Ctrl + mouse wheel` adjusts zoom on ordinary HTML page content.
 - Confirm the toolbar indicator follows the active BrowserView's actual zoom factor. The indicator is refreshed immediately on app-driven zoom and also polls the active BrowserView as a safety net.
 - Confirm clicking the zoom indicator resets the active tab to 100%.
 - Confirm the function menu can zoom in, zoom out, and reset to 100%.
 - Confirm zoom remains independent when switching between tabs.
 - Exercise target `_blank` / `window.open()` workflows used by the actual legacy site.
 
-`Ctrl + mouse wheel` is implemented explicitly in the page preload for ordinary HTML content. Pepper Flash may consume wheel input before the page receives it, so Flash-area wheel zoom remains best-effort and is not a completion requirement.
+`Ctrl + mouse wheel` is **not supported** in the current Electron 6 + BrowserView runtime. It was tested both through Chromium's `zoom-changed` path and an explicit page-preload `wheel` handler, but neither path was reliable even on ordinary HTML pages in the target environment. Supporting it would require a separate native/global mouse-input hook, which is outside the current browser scope and would add stability risk. Use `Ctrl + +`, `Ctrl + -`, `Ctrl + 0`, or the toolbar function menu instead.
 
 If a real legacy workflow requires a separate popup window rather than the current tab routing, record the exact workflow and URL/action; do not redesign popup behavior preemptively.
 
