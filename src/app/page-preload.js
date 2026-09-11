@@ -6,24 +6,10 @@ window.addEventListener('mousedown', () => {
   ipcRenderer.send('browser:page-mousedown');
 }, true);
 
-// General HTML page Ctrl+wheel zoom. Pepper Flash may consume wheel input before
-// it reaches the page, so this intentionally guarantees only normal page content.
-// Throttle touchpad/high-resolution wheel streams so one gesture does not jump
-// through many zoom levels at once.
-let lastZoomWheelAt = 0;
-window.addEventListener('wheel', (event) => {
-  if (!event.ctrlKey || !event.deltaY) return;
-
-  const now = Date.now();
-  if (now - lastZoomWheelAt < 90) {
-    event.preventDefault();
-    return;
-  }
-  lastZoomWheelAt = now;
-
-  event.preventDefault();
-  ipcRenderer.send(event.deltaY < 0 ? 'browser:feature-zoom-in' : 'browser:feature-zoom-out');
-}, { capture: true, passive: false });
+// Ctrl+mouse-wheel zoom is intentionally not intercepted here. In the current
+// Electron 6 + BrowserView runtime the gesture is consumed before this preload
+// reliably receives it, even on ordinary pages. Supported zoom controls are
+// Ctrl + +/-/0 and the browser function menu.
 
 function resolveCandidate(value) {
   const raw = String(value || '').trim();
