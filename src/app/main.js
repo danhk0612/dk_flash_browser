@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { app, BrowserWindow, BrowserView, Menu, dialog, clipboard, ipcMain } = require('electron');
+const { app, BrowserWindow, BrowserView, Menu, dialog, clipboard, ipcMain, session } = require('electron');
 
 const FLASH_VERSION = '29.0.0.140';
 const PRODUCT_NAME = 'DK Flash Browser';
@@ -16,6 +16,7 @@ const rootDir = getRootDir();
 const flashPath = path.join(rootDir, 'Flash', 'pepflashplayer.dll');
 const configPath = path.join(rootDir, 'config.ini');
 const userDataPath = path.join(rootDir, 'UserData');
+const sessionCookieBackupPath = path.join(userDataPath, 'session-cookies.json');
 const logDir = path.join(rootDir, 'Logs');
 const logPath = path.join(logDir, 'browser.log');
 
@@ -83,6 +84,105 @@ function safeWebContents(tab) {
   if (!tab || !tab.view || !tab.view.webContents) return null;
   const contents = tab.view.webContents;
   return contents.isDestroyed() ? null : contents;
+}
+
+function sessionCookieKey(cookie) {
+  return [String(cookie.domain || ''), String(cookie.path || '/'), String(cookie.name || '')].join('\t');
+}
+
+function sessionCookieDetails(cookie) {
+  const domain = String(cookie.domain || '').replace(/^\./, '');
+  if (!domain || !cookie.name) return null;
+
+  const details = {
+    url: (cookie.secure ? 'https://' : 'http://') + domain + '/',
+    name: cookie.name,
+    value: cookie.value || '',
+    path: cookie.path || '/',
+    secure: !!cookie.secure,
+    httpOnly: !!cookie.httpOnly
+  };
+
+  if (!cookie.hostOnly && cookie.domain) details.domain = cookie.domain;
+  if (cookie.sameSite) details.sameSite = cookie.sameSite;
+  return details;
+}
+
+function loadSessionCookieBackup() {
+  try {
+    if (!fs.existsSync(sessionCookieBackupPath)) return new Map();
+    const parsed = JSON.parse(fs.readFileSync(sessionCookieBackupPath, 'utf8'));
+    if (!Array.isArray(parsed)) return new Map();
+    const result = new Map();
+    parsed.forEach((cookie) => {
+      if (cookie && cookie.name && cookie.domain) result.set(sessionCookieKey(cookie), cookie);
+    });
+    return result;
+  } catch (error) {
+    writeLog('SESSION-COOKIE', 'Failed to read session cookie backup', error);
+    return new Map();
+  }
+}
+
+function saveSessionCookieBackup(cookieMap) {
+  try {
+    fs.mkdirSync(userDataPath, { recursive: true });
+    const tempPath = sessionCookieBackupPath + '.tmp';
+    fs.writeFileSync(tempPath, JSON.stringify(Array.from(cookieMap.values()), null, 2), 'utf8');
+    if (fs.existsSync(sessionCookieBackupPath)) fs.unlinkSync(sessionCookieBackupPath);
+    fs.renameSync(tempPath, sessionCookieBackupPath);
+  } catch (error) {
+    writeLog('SESSION-COOKIE', 'Failed to write session cookie backup', error);
+  }
+}
+
+async function initializeSessionCookiePersistence() {
+  const browserSession = session.fromPartition(BROWSER_PARTITION);
+  const savedCookies = loadSessionCookieBackup();
+  let restoring = true;
+  let restoredCount = 0;
+
+  for (const cookie of savedCookies.values()) {
+    try {
+      const details = sessionCookieDetails(cookie);
+      if (!details) continue;
+      await browserSession.cookies.set(details);
+      restoredCount++;
+    } catch (error) {
+      writeLog('SESSION-COOKIE', 'Failed to restore session cookie ' + String(cookie.name || ''), error);
+    }
+  }
+
+  restoring = false;
+  if (restoredCount) writeLog('SESSION-COOKIE', 'Restored ' + restoredCount + ' session cookies from portable profile.');
+
+  browserSession.cookies.on('changed', (_event, cookie, _cause, removed) => {
+    if (restoring || !cookie || !cookie.name || !cookie.domain) return;
+
+    const key = sessionCookieKey(cookie);
+    if (removed || !cookie.session) {
+      if (savedCookies.delete(key)) saveSessionCookieBackup(savedCookies);
+      return;
+    }
+
+    savedCookies.set(key, {
+      name: cookie.name,
+      value: cookie.value || '',
+      domain: cookie.domain,
+      hostOnly: !!cookie.hostOnly,
+      path: cookie.path || '/',
+      secure: !!cookie.secure,
+      httpOnly: !!cookie.httpOnly,
+      sameSite: cookie.sameSite || undefined
+    });
+    saveSessionCookieBackup(savedCookies);
+  });
+
+  try {
+    await browserSession.cookies.flushStore();
+  } catch (error) {
+    writeLog('SESSION-COOKIE', 'Failed to flush persistent cookie store', error);
+  }
 }
 
 app.commandLine.appendSwitch('ppapi-flash-path', flashPath);
@@ -482,8 +582,13 @@ app.on('gpu-process-crashed', (_event, killed) => {
   writeLog('GPU-CRASH', 'GPU process crashed. killed=' + String(!!killed));
 });
 
-app.on('ready', () => {
+app.on('ready', async () => {
   writeLog('START', PRODUCT_NAME + ' starting. Electron=' + process.versions.electron + ' Chromium=' + process.versions.chrome);
+  try {
+    await initializeSessionCookiePersistence();
+  } catch (error) {
+    writeLog('SESSION-COOKIE', 'Failed to initialize session cookie persistence', error);
+  }
   createWindow();
 });
 app.on('before-quit', () => writeLog('STOP', PRODUCT_NAME + ' exiting.'));
