@@ -23,6 +23,9 @@ $DistRoot = Join-Path $Root 'dist'
 if (-not (Test-Path $AppManifest)) {
     Write-Error "Missing app manifest: $AppManifest"
 }
+if (-not (Test-Path $ConfigExample)) {
+    Write-Error "Missing default configuration: $ConfigExample"
+}
 
 $Manifest = Get-Content $AppManifest -Raw | ConvertFrom-Json
 $Version = [string]$Manifest.version
@@ -97,7 +100,11 @@ $PackagedAppDir = Join-Path $OutputDir 'resources\app'
 New-Item -ItemType Directory -Force -Path $PackagedAppDir | Out-Null
 Copy-Item (Join-Path $AppSource '*') $PackagedAppDir -Recurse -Force
 
-if (Test-Path $Config) {
+# Public releases must always ship the repository's neutral default configuration.
+# Never copy a developer/user-local config.ini into a public release artifact.
+if ($PublicRelease) {
+    Copy-Item $ConfigExample (Join-Path $OutputDir 'config.ini') -Force
+} elseif (Test-Path $Config) {
     Copy-Item $Config (Join-Path $OutputDir 'config.ini') -Force
 } else {
     Copy-Item $ConfigExample (Join-Path $OutputDir 'config.ini') -Force
@@ -137,7 +144,7 @@ Write-Host "Executable: $BrowserExe"
 Write-Host "Application icon: $(Join-Path $OutputDir 'DKFlashBrowser.ico')"
 Write-Host "Version: $Version"
 if ($PublicRelease) {
-    Write-Host 'Mode: PUBLIC RELEASE (Flash DLL intentionally excluded)'
+    Write-Host 'Mode: PUBLIC RELEASE (Flash DLL intentionally excluded; default config enforced)'
 } else {
     Write-Host 'Mode: LOCAL VALIDATED PACKAGE (user-supplied Flash DLL included locally)'
 }
