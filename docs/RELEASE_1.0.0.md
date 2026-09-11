@@ -7,6 +7,7 @@
 - Runtime: Electron 6.1.12 / Chromium 76 generation
 - Architecture: Windows x86 / PE32
 - Flash baseline: Pepper Flash 29.0.0.140 x86, supplied locally by the user
+- Branding: generated multi-size `DKFlashBrowser.ico`, embedded into the executable during packaging
 
 ## Build
 
@@ -24,15 +25,11 @@ dist\DKFlashBrowser-win32-ia32\
 dist\DKFlashBrowser-1.0.0-win32-ia32.zip
 ```
 
+The packaging script generates the application ICO, downloads/caches Electron `rcedit` v2.0.0 x86 when needed, embeds the icon and version resources in `DKFlashBrowser.exe`, and copies `DKFlashBrowser.ico` beside the executable.
+
 ### Validation status
 
-Final Windows packaging was run successfully on 2026-09-11.
-
-Confirmed output:
-
-- `dist\DKFlashBrowser-win32-ia32` created;
-- `dist\DKFlashBrowser-1.0.0-win32-ia32.zip` created;
-- packaged version reported as `1.0.0`.
+The pre-branding final Windows package build completed successfully on 2026-09-11. After the icon/resource change, one final rebuild is required to validate the branded executable/ZIP.
 
 ## Static validation
 
@@ -52,28 +49,19 @@ The validator must confirm:
 
 - `DKFlashBrowser.exe` is x86/PE32;
 - `Flash\pepflashplayer.dll` is x86/PE32;
+- generated `DKFlashBrowser.ico` is a valid multi-size ICO;
+- executable ProductName/FileVersion resources identify DK Flash Browser 1.0.0;
 - `config.ini`, `UserData`, README, license/notices and application resources are present;
 - `VERSION.txt` matches `resources\app\package.json`;
 - portable user-data redirection is present;
-- the persistent browser partition is present.
+- the persistent browser partition is present;
+- packaged `main.js` references `DKFlashBrowser.ico` for the BrowserWindow.
 
-### Validation status
+### Previous validation status
 
-PASS on 2026-09-11.
+The pre-branding package passed all prior static checks on 2026-09-11, including x86 executable/Flash validation, package version `1.0.0`, portable profile redirection, persistent session partition, and Flash DLL size 17,930,296 bytes.
 
-Confirmed by the final Windows package validator:
-
-- `DKFlashBrowser.exe` x86 / `IMAGE_FILE_MACHINE_I386 (0x014C)`;
-- Pepper Flash DLL x86 / `IMAGE_FILE_MACHINE_I386 (0x014C)`;
-- `config.ini` present;
-- portable `UserData` directory present;
-- packaged `main.js` and `package.json` present;
-- `VERSION.txt`, README, license, and third-party notices present;
-- package version metadata matches `1.0.0`;
-- portable userData redirect present;
-- persistent browser session partition present;
-- Flash DLL size confirmed as 17,930,296 bytes;
-- final result: `Static portable validation PASSED.`
+The branded package must be rebuilt and the updated validator run once more before merge.
 
 ## Runtime smoke test
 
@@ -96,9 +84,12 @@ Verify at minimum:
 - toolbar feature menu opens and shows image/Flash candidate download lists;
 - window title follows the active tab page title;
 - normal and hard reload work;
-- browser closes without an unexpected native crash.
+- browser closes without an unexpected native crash;
+- Explorer executable icon, running-window/taskbar icon, and packaged ICO show the DK Flash Browser branding.
 
-Status: **PENDING final 1.0.0 packaged-runtime confirmation.**
+### Runtime status
+
+The user confirmed the pre-branding 1.0.0 package workflows above were working correctly. After applying the final icon/resource branding, only a short regression run is required to confirm startup and branding did not disturb runtime behavior.
 
 ## Accepted limitations
 
@@ -110,4 +101,4 @@ Status: **PENDING final 1.0.0 packaged-runtime confirmation.**
 
 ## Release approval
 
-Do not merge T08 or publish/tag `v1.0.0` until the final Windows packaged-runtime smoke test is accepted.
+Do not merge T08 or publish/tag `v1.0.0` until the branded package rebuild, updated static validator, and short runtime/icon regression check are accepted.
