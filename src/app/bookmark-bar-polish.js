@@ -10,10 +10,10 @@
   }
 
   function focusBrowserChrome() {
-    // Electron 6 BrowserView can remain internally focused even after the user
-    // clicks browser chrome. Explicitly focus the chrome renderer while bookmark
-    // UI is being used so the next click in the BrowserView produces a reliable
-    // focus transition and closes the transient bookmark UI.
+    // window.focus() alone is not reliable with Electron 6 BrowserView. Ask the
+    // main process to focus the browser chrome webContents explicitly so the
+    // next page click produces a real BrowserView focus transition.
+    try { window.dkBrowser.send('browser:focus-chrome'); } catch (_error) {}
     try { window.focus(); } catch (_error) {}
   }
 
@@ -64,9 +64,6 @@
     return editorClosed || contextClosed || dropdownClosed;
   }
 
-  // Any interaction with bookmark chrome explicitly transfers focus away from
-  // the BrowserView. This is necessary on old Electron where a BrowserView may
-  // otherwise remain logically focused while the chrome receives mouse input.
   document.addEventListener('mousedown', function (event) {
     const dropdown = visible('.bookmark-dropdown');
     const context = visible('.bookmark-context-panel');
@@ -89,12 +86,16 @@
     if (closeTransientPanels()) event.preventDefault();
   }, true);
 
+  // When focus leaves the chrome renderer for the BrowserView, close any open
+  // bookmark UI. This supplements the main-process BrowserView focus signal.
+  window.addEventListener('blur', function () {
+    closeTransientPanels();
+  }, true);
+
   function handlePageFocus() {
     closeTransientPanels();
   }
 
-  // BrowserView focus is forwarded by bootstrap.js. Keep the old alias too so
-  // older packaged test copies and the current branch behave the same way.
   window.dkBrowser.on('browser:close-bookmark-menus', handlePageFocus);
   window.dkBrowser.on('browser:page-focus', handlePageFocus);
 })();
