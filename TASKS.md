@@ -55,50 +55,51 @@ Status: complete, user-validated, and merged
 
 ## T06 — Configuration finalization
 
-Status: configuration behavior validated; merge is blocked by native Electron 6 browser-process crash investigation
+Status: configuration/browser UI behavior user-validated; latest startup-default additions await validation before merge
 
-- External configuration contract is intentionally minimal:
-  - `[Browser] StartUrl=...`
-- `StartUrl` controls startup, Home / Alt+Home, and manually created new tabs.
+- `[Browser] StartUrl=...` controls startup, Home / Alt+Home, and manually created new tabs.
+- Missing or empty `StartUrl` now falls back to `https://software.mydepot.kr/` and is written into `config.ini`.
+- `[DefaultBookmarks] BookmarkN=Title|URL` seeds root bookmarks only when `UserData\bookmarks.json` does not exist.
+- An existing but empty bookmark file is treated as an intentional user state and is not reseeded.
+- Deleting/resetting the bookmark file causes config defaults to be seeded again on the next launch.
+- Startup Flash preflight validates `Flash\pepflashplayer.dll` existence, plausible size, PE header, and x86 machine type before normal browser code is loaded.
+- Flash preflight failure displays an error and exits without loading any browser page.
 - Editing packaged `config.ini` requires only an application restart, not a rebuild.
-- Unknown sections/keys are ignored; missing/empty value falls back to `about:blank`.
 
-### Stability blocker discovered during T06 validation
+### Stability work completed during T06 validation
 
-The user reported intermittent full-process exits while:
+The user previously reported intermittent full-process exits while using both Flash and ordinary web pages. Two Crashpad dumps showed identical main/browser-process access violations at `DKFlashBrowser.exe+0x0189A4F6`.
 
-- operating a Flash page;
-- opening tabs / pressing Home on Naver Cafe;
-- navigating between other Naver pages.
+Runtime BrowserView `webContents.destroy()` is therefore suppressed during normal use and cleanup is deferred to application/OS shutdown. After this change, the user reported that the forced exits no longer appeared during the tested workflows.
 
-Crash Reporter was corrected for Electron 6 and two native Crashpad dumps were captured from actual forced exits.
+Additional T06 browser UI work now includes:
 
-Dump findings:
+- Chrome-like shrinking tab widths with favicon/title behavior;
+- persistent bookmark favicon/address favicon support;
+- bookmark folder tree, editing, dragging/reordering, and folder moves;
+- bookmark-bar expansion UI rather than separate popup windows;
+- bookmark storage in `UserData\bookmarks.json`;
+- reduced tab/address visual flicker during navigation;
+- bookmark panels close when interacting outside the bookmark UI, including page focus.
 
-- both dumps fail with Windows exception `0xC0000005` (access violation, read);
-- both attempt to read address `0x00000008`, consistent with a null-object member dereference;
-- both crash inside `DKFlashBrowser.exe` at the same module-relative offset `0x0189A4F6`;
-- dump command lines contain no renderer/GPU `--type=` switch, so the Electron main/browser process is crashing, not only a renderer or Pepper Flash child process;
-- the identical native crash location across unrelated Flash/Naver workflows points to a browser-shell/runtime lifecycle bug rather than one site.
-
-Electron has known Windows native crashes in the Electron 5-7 generation when BrowserView destruction overlaps native layout/resize work. Because DK Flash Browser uses BrowserViews as tabs, runtime explicit BrowserView WebContents destruction is now suppressed in `bootstrap.js`; closed BrowserView cleanup is deferred to application/OS shutdown. This intentionally favors stability over immediate memory reclamation.
-
-Diagnostic log tags:
+Diagnostic log tags remain available:
 
 - `CRASH-REPORTER`
+- `FLASH-CHECK`
 - `BROWSERVIEW-LIFECYCLE`
 - `RENDERER-PROCESS-CRASHED`
 - `GPU-PROCESS-CRASHED`
 - `PROCESS-EXIT`
 - existing `RENDERER-CRASH`, `GPU-CRASH`, `MAIN-UNCAUGHT`, `MAIN-REJECTION`
 
-Next validation:
+Validation still required before T06 merge:
 
-- rebuild the packaged browser from the latest T06 branch;
-- use the same Flash and normal browsing workflows that previously produced forced exits; exact reproduction steps are not required;
-- open/switch/close several tabs during normal use;
-- if a full exit occurs again, preserve `Logs/browser.log` and the newest Crashpad `.dmp` files;
-- if the dump still crashes at `DKFlashBrowser.exe+0x0189A4F6`, next stabilization work should restructure BrowserView attach/switch handling rather than add site-specific workarounds.
+- normal launch with valid Flash DLL;
+- failure message and no browser page when Flash DLL is missing/corrupt/wrong architecture;
+- missing/empty StartUrl falls back to `https://software.mydepot.kr/`;
+- default bookmarks appear when `bookmarks.json` is absent;
+- deleting all bookmarks without deleting `bookmarks.json` does not recreate defaults after restart;
+- deleting/resetting `bookmarks.json` does recreate config defaults.
 
 ## T07 — Real legacy-system validation
 
