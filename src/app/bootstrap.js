@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { app, BrowserWindow, crashReporter, dialog, ipcMain, session } = require('electron');
+const { app, BrowserWindow, Menu, crashReporter, dialog, globalShortcut, ipcMain, session } = require('electron');
 
 const DEFAULT_START_URL = 'https://html.duckduckgo.com/html';
 const MIN_FLASH_SIZE = 4 * 1024 * 1024;
@@ -20,6 +20,8 @@ const flashPath = path.join(rootDir, 'Flash', 'pepflashplayer.dll');
 const pagePreloadPath = path.join(__dirname, 'page-preload.js');
 const logDir = path.join(rootDir, 'Logs');
 const logPath = path.join(logDir, 'browser.log');
+const flashCandidatesByContents = new Map();
+let lastFocusedBrowserViewContents = null;
 
 function writeBootstrapLog(type, message, error) {
   try {
@@ -188,6 +190,144 @@ function validateFlashDll() {
   }
 }
 
+function focusedBrowserWindow() {
+  const win = BrowserWindow.getFocusedWindow();
+  return win && !win.isDestroyed() ? win : null;
+}
+
+function activeBrowserViewContents() {
+  const win = focusedBrowserWindow();
+  if (!win) return null;
+  try {
+    if (typeof win.getBrowserView === 'function') {
+      const view = win.getBrowserView();
+      if (view && view.webContents && !view.webContents.isDestroyed()) return view.webContents;
+    }
+  } catch (_error) {}
+  if (lastFocusedBrowserViewContents && !lastFocusedBrowserViewContents.isDestroyed()) {
+    return lastFocusedBrowserViewContents;
+  }
+  return null;
+}
+
+function emitNativeZoom(direction) {
+  const contents = activeBrowserViewContents();
+  if (!contents) return;
+  try {
+    ipcMain.emit('browser:zoom-wheel', { sender: contents }, direction);
+  } catch (error) {
+    writeBootstrapLog('ZOOM', 'Failed to dispatch native zoom command', error);
+  }
+}
+
+function emitNativeZoomReset() {
+  if (!focusedBrowserWindow()) return;
+  try {
+    ipcMain.emit('browser:zoom-reset', { sender: activeBrowserViewContents() });
+  } catch (error) {
+    writeBootstrapLog('ZOOM', 'Failed to dispatch native zoom reset', error);
+  }
+}
+
+function flashFilename(url) {
+  try {
+    const parsed = new URL(url);
+    const name = path.basename(parsed.pathname || '');
+    return decodeURIComponent(name || 'flash.swf');
+  } catch (_error) {
+    return 'flash.swf';
+  }
+}
+
+function downloadFlashUrl(contents, url) {
+  if (!contents || contents.isDestroyed() || !url) return;
+  try {
+    const savePath = dialog.showSaveDialogSync(focusedBrowserWindow() || undefined, {
+      title: 'Flash 파일 저장',
+      defaultPath: path.join(app.getPath('downloads'), flashFilename(url))
+    });
+    if (!savePath || contents.isDestroyed()) return;
+    contents.session.once('will-download', (_event, item) => {
+      try {
+        item.setSavePath(savePath);
+      } catch (error) {
+        writeBootstrapLog('FLASH-DOWNLOAD', 'Failed to set Flash save path', error);
+      }
+    });
+    contents.downloadURL(url);
+  } catch (error) {
+    writeBootstrapLog('FLASH-DOWNLOAD', 'Failed to download Flash URL ' + url, error);
+  }
+}
+
+function flashMenuLabel(url, index, duplicateNames) {
+  const name = flashFilename(url);
+  if (!duplicateNames.has(name)) return name;
+  try {
+    const parsed = new URL(url);
+    return name + ' — ' + parsed.host + parsed.pathname;
+  } catch (_error) {
+    return String(index + 1) + '. ' + url;
+  }
+}
+
+function chooseFlashDownload() {
+  const win = focusedBrowserWindow();
+  const contents = activeBrowserViewContents();
+  if (!win || !contents) return;
+  const stored = flashCandidatesByContents.get(contents.id) || [];
+  const candidates = Array.from(new Set(stored.filter((url) => typeof url === 'string' && url)));
+
+  if (!candidates.length) {
+    dialog.showMessageBoxSync(win, {
+      type: 'info',
+      title: 'DK Flash Browser',
+      message: '현재 페이지에서 다운로드 가능한 Flash 파일 주소를 찾지 못했습니다.',
+      detail: '페이지가 SWF 주소를 HTML에 노출하는 경우에만 직접 다운로드할 수 있습니다.',
+      buttons: ['확인'],
+      defaultId: 0,
+      noLink: true
+    });
+    return;
+  }
+
+  if (candidates.length === 1) {
+    downloadFlashUrl(contents, candidates[0]);
+    return;
+  }
+
+  const counts = Object.create(null);
+  candidates.forEach((url) => {
+    const name = flashFilename(url);
+    counts[name] = (counts[name] || 0) + 1;
+  });
+  const duplicateNames = new Set(Object.keys(counts).filter((name) => counts[name] > 1));
+  const template = candidates.map((url, index) => ({
+    label: flashMenuLabel(url, index, duplicateNames),
+    toolTip: url,
+    click: () => downloadFlashUrl(contents, url)
+  }));
+  Menu.buildFromTemplate(template).popup({ window: win });
+}
+
+function registerShortcut(accelerator, handler) {
+  try {
+    const ok = globalShortcut.register(accelerator, handler);
+    writeBootstrapLog('SHORTCUT', accelerator + ' registration=' + String(ok));
+  } catch (error) {
+    writeBootstrapLog('SHORTCUT', 'Failed to register ' + accelerator, error);
+  }
+}
+
+function registerNativeShortcuts() {
+  // Native accelerators remain available while Pepper Flash owns keyboard focus.
+  registerShortcut('CommandOrControl+=', () => emitNativeZoom(1));
+  registerShortcut('CommandOrControl+Plus', () => emitNativeZoom(1));
+  registerShortcut('CommandOrControl+-', () => emitNativeZoom(-1));
+  registerShortcut('CommandOrControl+0', emitNativeZoomReset);
+  registerShortcut('CommandOrControl+Shift+S', chooseFlashDownload);
+}
+
 try {
   fs.mkdirSync(userDataPath, { recursive: true });
   app.setPath('userData', userDataPath);
@@ -228,6 +368,7 @@ app.on('ready', () => {
   } catch (error) {
     writeBootstrapLog('PAGE-INPUT', 'Failed to enable BrowserView page click preload', error);
   }
+  registerNativeShortcuts();
 });
 
 app.on('web-contents-created', (_event, contents) => {
@@ -248,6 +389,7 @@ app.on('web-contents-created', (_event, contents) => {
     };
 
     contents.on('focus', () => {
+      lastFocusedBrowserViewContents = contents;
       try {
         BrowserWindow.getAllWindows().forEach((win) => {
           if (win && !win.isDestroyed()) {
@@ -258,6 +400,11 @@ app.on('web-contents-created', (_event, contents) => {
       } catch (error) {
         writeBootstrapLog('BOOKMARK-MENU', 'Failed to close bookmark menus on BrowserView focus', error);
       }
+    });
+
+    contents.once('destroyed', () => {
+      flashCandidatesByContents.delete(contents.id);
+      if (lastFocusedBrowserViewContents === contents) lastFocusedBrowserViewContents = null;
     });
 
     contents.on('page-favicon-updated', (_faviconEvent, favicons) => {
@@ -289,8 +436,21 @@ ipcMain.on('browser:page-mousedown', () => {
   }
 });
 
+ipcMain.on('browser:flash-candidates', (event, urls) => {
+  try {
+    if (!event || !event.sender) return;
+    const normalized = Array.isArray(urls)
+      ? Array.from(new Set(urls.filter((url) => typeof url === 'string' && url)))
+      : [];
+    flashCandidatesByContents.set(event.sender.id, normalized);
+  } catch (error) {
+    writeBootstrapLog('FLASH-DOWNLOAD', 'Failed to cache Flash candidates', error);
+  }
+});
+
 app.on('before-quit', () => {
   app.isQuitting = true;
+  try { globalShortcut.unregisterAll(); } catch (_error) {}
 });
 
 app.on('renderer-process-crashed', (_event, webContents, killed) => {
