@@ -9,15 +9,6 @@
     return element && !element.hidden ? element : null;
   }
 
-  function focusBrowserChrome() {
-    // Ask the main process to focus the browser chrome webContents explicitly.
-    // Do not use window blur as a close trigger: opening/editing bookmark UI can
-    // legitimately move focus inside the chrome renderer and would otherwise
-    // close the newly opened panel immediately.
-    try { window.dkBrowser.send('browser:focus-chrome'); } catch (_error) {}
-    try { window.focus(); } catch (_error) {}
-  }
-
   function closeFolderDropdown() {
     const dropdown = visible('.bookmark-dropdown');
     if (!dropdown) return false;
@@ -65,22 +56,20 @@
     return editorClosed || contextClosed || dropdownClosed;
   }
 
+  // Browser chrome and bookmark panels live in this document, so normal DOM
+  // containment is enough here. BrowserView page clicks are handled separately
+  // by page-preload.js and forwarded through the main process.
   document.addEventListener('mousedown', function (event) {
     const dropdown = visible('.bookmark-dropdown');
     const context = visible('.bookmark-context-panel');
     const editor = visible('.bookmark-editor-panel');
-
-    // Bookmark bar and every bookmark-related panel are one interaction region.
-    // Clicking anywhere inside this region must not dismiss the UI.
-    if (bookmarkBar.contains(event.target) ||
-        (dropdown && dropdown.contains(event.target)) ||
-        (context && context.contains(event.target)) ||
-        (editor && editor.contains(event.target))) {
-      focusBrowserChrome();
-      return;
-    }
-
     if (!dropdown && !context && !editor) return;
+
+    if (bookmarkBar.contains(event.target)) return;
+    if (dropdown && dropdown.contains(event.target)) return;
+    if (context && context.contains(event.target)) return;
+    if (editor && editor.contains(event.target)) return;
+
     closeTransientPanels();
   }, true);
 
@@ -89,12 +78,10 @@
     if (closeTransientPanels()) event.preventDefault();
   }, true);
 
-  function handlePageFocus() {
+  function handlePageInteraction() {
     closeTransientPanels();
   }
 
-  // Actual BrowserView page interaction is forwarded by the main process.
-  // This is the only cross-surface close trigger; chrome blur itself is not.
-  window.dkBrowser.on('browser:close-bookmark-menus', handlePageFocus);
-  window.dkBrowser.on('browser:page-focus', handlePageFocus);
+  window.dkBrowser.on('browser:close-bookmark-menus', handlePageInteraction);
+  window.dkBrowser.on('browser:page-focus', handlePageInteraction);
 })();
