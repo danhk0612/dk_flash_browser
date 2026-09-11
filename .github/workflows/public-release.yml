@@ -1,0 +1,101 @@
+name: Public Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $manifest = Get-Content '.\src\app\package.json' -Raw | ConvertFrom-Json
+          $version = [string]$manifest.version
+          if (-not $version) { throw 'Missing version in src/app/package.json' }
+
+          $tag = "v$version"
+          $zip = ".\dist\DKFlashBrowser-$version-win32-ia32-public.zip"
+          $notes = ".\docs\RELEASE_NOTES_$version.md"
+
+          if ('${{ github.event_name }}' -eq 'push' -and '${{ github.ref_type }}' -eq 'tag') {
+            $pushedTag = '${{ github.ref_name }}'
+            if ($pushedTag -ne $tag) {
+              throw "Tag/version mismatch: pushed=$pushedTag package=$tag"
+            }
+          }
+
+          if (-not (Test-Path $notes)) {
+            throw "Missing release notes: $notes"
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+          "notes=$notes" >> $env:GITHUB_OUTPUT
+
+      - name: Build public portable package
+        shell: pwsh
+        run: |
+          .\scripts\package-win32.ps1 -PublicRelease
+
+      - name: Validate public portable package
+        shell: pwsh
+        run: |
+          .\scripts\validate-portable.ps1 -PublicRelease
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DKFlashBrowser-${{ steps.meta.outputs.version }}-public
+          path: ${{ steps.meta.outputs.zip }}
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ steps.meta.outputs.tag }}'
+          $zip = '${{ steps.meta.outputs.zip }}'
+          $notes = '${{ steps.meta.outputs.notes }}'
+          $title = "DK Flash Browser ${{ steps.meta.outputs.version }}"
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          $exists = ($LASTEXITCODE -eq 0)
+
+          if ($exists) {
+            Write-Host "Updating existing release: $tag"
+            gh release edit $tag `
+              --repo $env:GITHUB_REPOSITORY `
+              --title $title `
+              --notes-file $notes `
+              --prerelease=false
+            if ($LASTEXITCODE -ne 0) { throw "Failed to update release $tag" }
+
+            gh release upload $tag $zip `
+              --repo $env:GITHUB_REPOSITORY `
+              --clobber
+            if ($LASTEXITCODE -ne 0) { throw "Failed to upload asset to $tag" }
+          } else {
+            Write-Host "Creating release: $tag"
+            gh release create $tag $zip `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:GITHUB_SHA `
+              --title $title `
+              --notes-file $notes
+            if ($LASTEXITCODE -ne 0) { throw "Failed to create release $tag" }
+          }
+
+          Write-Host "Published $tag with asset $zip"
