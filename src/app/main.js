@@ -177,6 +177,9 @@ function createBrowserView() {
     }
   });
   mainWindow.setBrowserView(browserView);
+  const contentSize = mainWindow.getContentSize();
+  browserView.setBounds({ x: 0, y: 75, width: contentSize[0], height: Math.max(1, contentSize[1] - 75) });
+  browserView.setAutoResize({ width: true, height: true });
   installBrowserHandlers(browserView.webContents);
   browserView.webContents.loadURL(browserConfig.startUrl);
 }
@@ -213,7 +216,6 @@ function createWindow() {
 ipcMain.on('browser:bounds', (_event, bounds) => {
   if (browserView) browserView.setBounds(normalizeBounds(bounds));
 });
-
 ipcMain.on('browser:navigate', (_event, url) => {
   if (browserView && url) browserView.webContents.loadURL(url);
 });
