@@ -68,9 +68,12 @@ Record PASS / FAIL / NOT USED for each applicable item:
 - Audio works when the legacy application uses audio.
 - File upload works when required.
 - Downloads work when required.
-- Direct SWF/image/media URL right-click download works when the page exposes such a URL.
+- Image/media direct URL right-click download works when the page exposes such a URL.
+- If Electron receives Flash as a normal plugin/srcURL context-menu target, `Flash 다운로드...` appears.
+- Pepper Flash's own native right-click menu cannot be extended by the browser. For those pages, right-click elsewhere on the page should offer `페이지 Flash 다운로드...` when an HTML `<embed>`, `<object>`, or `param movie/src` exposes a `.swf` URL.
+- `Ctrl+Shift+S` downloads the first detected page SWF URL, or explains that no direct SWF URL was exposed.
 
-## D. Tabs / popup behavior
+## D. Tabs / popup / zoom behavior
 
 - Open several ordinary tabs.
 - Open several legacy/Flash pages in separate tabs.
@@ -78,6 +81,12 @@ Record PASS / FAIL / NOT USED for each applicable item:
 - Close tabs in different orders.
 - Confirm no full-process exit occurs.
 - Confirm address/title/favicons remain synchronized with the active tab.
+- Confirm the native window title follows the active page as `페이지 제목 - DK Flash Browser`.
+- Confirm each tab starts at 100% zoom.
+- Confirm `Ctrl + mouse wheel`, `Ctrl + +`, `Ctrl + -`, and `Ctrl + 0` adjust/reset zoom.
+- Confirm the toolbar indicator reflects the active tab zoom (for example `100%`, `125%`).
+- Confirm clicking the zoom indicator resets the active tab to 100%.
+- Confirm zoom remains independent when switching between tabs.
 - Exercise target `_blank` / `window.open()` workflows used by the actual legacy site.
 
 If a real legacy workflow requires a separate popup window rather than the current tab routing, record the exact workflow and URL/action; do not redesign popup behavior preemptively.
@@ -88,6 +97,7 @@ Use the browser normally for at least 20–30 minutes with a mixture of:
 
 - Flash interaction;
 - page navigation;
+- zoom changes;
 - tab create/switch/close;
 - Home/reload/hard reload;
 - bookmark use.
