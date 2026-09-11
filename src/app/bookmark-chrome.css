@@ -1,0 +1,158 @@
+.bookmark-dropdown,
+.bookmark-context-panel,
+.bookmark-editor-panel {
+  display: none !important;
+}
+
+.chrome-bookmark-layer {
+  position: relative;
+  flex: 0 0 0;
+  height: 0;
+  min-height: 0;
+  overflow: visible;
+  background: transparent;
+  z-index: 20;
+}
+.chrome-bookmark-layer.open {
+  flex-basis: 320px;
+  height: 320px;
+  min-height: 320px;
+  background: #f5f5f5;
+}
+
+.chrome-bookmark-menu,
+.chrome-bookmark-editor {
+  position: absolute;
+  top: 3px;
+  width: 296px;
+  max-height: 306px;
+  padding: 6px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border: 1px solid #d4d4d4;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  color: #202124;
+  font-size: 13px;
+}
+
+.chrome-bookmark-menu-item {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: #202124;
+  cursor: default;
+  text-align: left;
+}
+.chrome-bookmark-menu-item:hover,
+.chrome-bookmark-menu-item.submenu-open,
+.chrome-bookmark-menu-item.drag-over {
+  background: #f0f3f6;
+}
+.chrome-bookmark-menu-item.dragging { opacity: 0.45; }
+.chrome-bookmark-menu-icon {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+.chrome-bookmark-folder-icon {
+  display: inline-flex;
+  flex: 0 0 18px;
+  width: 18px;
+  justify-content: center;
+  color: #5f6368;
+  font-size: 15px;
+}
+.chrome-bookmark-menu-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chrome-bookmark-submenu-arrow {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #5f6368;
+  font-size: 18px;
+}
+.chrome-bookmark-menu-separator {
+  height: 1px;
+  margin: 5px 0;
+  background: #e5e5e5;
+}
+.chrome-bookmark-menu-empty {
+  padding: 12px 14px;
+  color: #777777;
+  font-size: 12px;
+}
+.chrome-bookmark-menu.drag-over-container { background: #f5f9ff; }
+
+.chrome-bookmark-editor {
+  width: 390px;
+  max-height: none;
+  padding: 14px;
+}
+.chrome-bookmark-editor-title {
+  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.chrome-bookmark-editor-label {
+  display: block;
+  margin: 8px 0 4px;
+  color: #5f6368;
+  font-size: 12px;
+}
+.chrome-bookmark-editor-input {
+  width: 100%;
+  height: 32px;
+  padding: 4px 8px;
+  border: 1px solid #b7b7b7;
+  border-radius: 5px;
+  outline: none;
+  background: #ffffff;
+  color: #202124;
+}
+.chrome-bookmark-editor-input:focus { border-color: #6f8fbc; }
+.chrome-bookmark-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 14px;
+}
+.chrome-bookmark-editor-button {
+  min-width: 66px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #c7c7c7;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #202124;
+  cursor: pointer;
+}
+.chrome-bookmark-editor-button:hover { background: #f1f1f1; }
+.chrome-bookmark-editor-button.primary {
+  border-color: #6684aa;
+  background: #e8f0fb;
+}
+.chrome-bookmark-editor-message {
+  line-height: 1.5;
+  white-space: normal;
+}
+
+.bookmark-folder::after {
+  content: '›';
+  flex: 0 0 auto;
+  margin-left: 5px;
+  color: #777777;
+  font-size: 15px;
+}
+.bookmark-folder .bookmark-folder-icon { display: none; }
