@@ -19,7 +19,10 @@
       <button id="reload-button" class="nav-button" type="button" title="새로고침 (F5 / Ctrl+R)">↻</button>
       <button id="hard-reload-button" class="nav-button hard-reload" type="button" title="강제 새로고침 - 캐시 무시 (Ctrl+F5 / Ctrl+Shift+R)">↻!</button>
       <button id="home-button" class="nav-button" type="button" title="홈 (Alt+Home)">⌂</button>
-      <input id="address-input" class="address-input" type="text" spellcheck="false" autocomplete="off" aria-label="주소">
+      <div class="address-box">
+        <img id="address-favicon" class="address-favicon" alt="" draggable="false">
+        <input id="address-input" class="address-input" type="text" spellcheck="false" autocomplete="off" aria-label="주소">
+      </div>
       <button id="bookmark-button" class="nav-button bookmark-toggle" type="button" title="북마크 추가 (Ctrl+D)">☆</button>
     </div>
     <div id="bookmark-bar" class="bookmark-bar" aria-label="북마크 바"></div>
