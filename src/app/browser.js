@@ -498,22 +498,25 @@
   }
 
   function addDropToContainer(container, folderId) {
-    container.addEventListener('dragover', function (event) {
+    // These containers are re-rendered frequently. Use replaceable DOM handler
+    // properties rather than accumulating addEventListener callbacks on the
+    // persistent root bookmark bar.
+    container.ondragover = function (event) {
       if (event.target !== container) return;
       event.preventDefault();
       event.dataTransfer.dropEffect = 'move';
       container.classList.add('drag-over-container');
-    });
-    container.addEventListener('dragleave', function (event) {
+    };
+    container.ondragleave = function (event) {
       if (event.target === container) container.classList.remove('drag-over-container');
-    });
-    container.addEventListener('drop', function (event) {
+    };
+    container.ondrop = function (event) {
       if (event.target !== container) return;
       event.preventDefault();
       container.classList.remove('drag-over-container');
       const dragId = event.dataTransfer.getData('text/plain');
       if (dragId) moveNode(dragId, folderId || null, null);
-    });
+    };
   }
 
   function renderBookmarks() {
