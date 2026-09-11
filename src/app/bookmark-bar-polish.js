@@ -62,13 +62,11 @@
     const editor = visible('.bookmark-editor-panel');
     if (!dropdown && !context && !editor) return;
 
-    // Anything that belongs to the bookmark bar UI remains interactive.
     if (bookmarkBar.contains(event.target)) return;
     if (dropdown && dropdown.contains(event.target)) return;
     if (context && context.contains(event.target)) return;
     if (editor && editor.contains(event.target)) return;
 
-    // Tabs, toolbar/address bar and every other browser-chrome area close it.
     closeTransientPanels();
   }, true);
 
@@ -77,9 +75,12 @@
     if (closeTransientPanels()) event.preventDefault();
   }, true);
 
-  // Page content is hosted in a BrowserView, so DOM mouse events above cannot
-  // see page clicks. The main process forwards BrowserView focus separately.
-  window.dkBrowser.on('browser:page-focus', function () {
+  function handlePageFocus() {
     closeTransientPanels();
-  });
+  }
+
+  // BrowserView focus is forwarded by bootstrap.js. Keep the old alias too so
+  // older packaged test copies and the current branch behave the same way.
+  window.dkBrowser.on('browser:close-bookmark-menus', handlePageFocus);
+  window.dkBrowser.on('browser:page-focus', handlePageFocus);
 })();
